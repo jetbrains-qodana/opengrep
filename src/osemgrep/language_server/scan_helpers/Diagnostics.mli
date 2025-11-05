@@ -1,5 +1,6 @@
 val diagnostics_of_results :
   is_intellij:bool ->
+  get_version:(Fpath.t -> int option) ->
   Semgrep_output_v1_t.cli_match list ->
   Fpath.t list ->
   Lsp.Server_notification.t list

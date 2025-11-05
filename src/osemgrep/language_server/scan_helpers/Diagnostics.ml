@@ -43,7 +43,7 @@ let diagnostic_of_match is_intellij (m : OutJ.cli_match) =
   | None -> diagnostic ()
   | Some codeDescription -> diagnostic ~codeDescription ()
 
-let diagnostics_of_file is_intellij matches file =
+let diagnostics_of_file is_intellij get_version matches file =
   let matches =
     List.filter (fun (m : OutJ.cli_match) -> m.path = file) matches
   in
@@ -54,12 +54,13 @@ let diagnostics_of_file is_intellij matches file =
         x |> Diagnostic.yojson_of_t |> Yojson.Safe.to_string)
       diagnostics
   in
+  let version = get_version file in
   let params =
     PublishDiagnosticsParams.create
       ~uri:(Uri.of_path (Fpath.to_string file))
-      ~diagnostics ()
+      ~diagnostics ?version ()
   in
   Server_notification.PublishDiagnostics params
 
-let diagnostics_of_results ~is_intellij results files =
-  List_.map (diagnostics_of_file is_intellij results) files
+let diagnostics_of_results ~is_intellij ~get_version results files =
+  List_.map (diagnostics_of_file is_intellij get_version results) files

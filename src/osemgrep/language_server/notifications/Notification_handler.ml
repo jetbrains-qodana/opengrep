@@ -71,8 +71,9 @@ let on_notification (server : RPC_server.t) notification =
         ignore first;
         ignore uri;
         (server, None)
-    | CN.TextDocumentDidOpen { textDocument = { uri; _ } } ->
+    | CN.TextDocumentDidOpen { textDocument = { uri; version; _ } } ->
         let path = uri |> Uri.to_path |> Fpath.v in
+        Session.set_document_version session path version;
         let reply =
           Reply.later (fun send ->
               let%lwt () =
@@ -113,8 +114,8 @@ let on_notification (server : RPC_server.t) notification =
                    (Session.scanned_files session))
         in
         let diagnostics =
-          Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij []
-            paths
+          Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
+            ~get_version:(Session.document_version session) [] paths
         in
         ( server,
           Some

@@ -41,6 +41,7 @@ type t = {
   workspace_folders : Fpath.t list;
   cached_workspace_targets : (Fpath.t, Fpath.t list) Hashtbl.t;
   cached_scans : (Fpath.t, Semgrep_output_v1_t.cli_match list) Hashtbl.t;
+  cached_document_versions : (Fpath.t, int) Hashtbl.t;
   cached_session : session_cache;
   skipped_local_fingerprints : string list;
   user_settings : User_settings.t;
@@ -90,6 +91,12 @@ val scanned_files : t -> Fpath.t list
 val previous_scan_of_file :
   t -> Fpath.t -> Semgrep_output_v1_t.cli_match list option
 (** [previous_scan_of_file session path] returns the last results of a scan on a file if it exists *)
+
+val document_version : t -> Fpath.t -> int option
+(** [document_version session path] returns the version of the document if it has been opened *)
+
+val set_document_version : t -> Fpath.t -> int -> unit
+(** [set_document_version session path version] stores the version of the document *)
 
 val add_skipped_fingerprint : t -> string -> t
 (** [add_skipped_fingerprint t fingerprint] adds a fingerprint to the list of skipped fingerprints in the session *)

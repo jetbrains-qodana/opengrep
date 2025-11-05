@@ -68,6 +68,7 @@ type t = {
   workspace_folders : Fpath.t list;
   cached_workspace_targets : (Fpath.t, Fpath.t list) Hashtbl.t; [@opaque]
   cached_scans : (Fpath.t, Out.cli_match list) Hashtbl.t; [@opaque]
+  cached_document_versions : (Fpath.t, int) Hashtbl.t; [@opaque]
   cached_session : session_cache;
   skipped_local_fingerprints : string list;
   user_settings : User_settings.t;
@@ -97,6 +98,7 @@ let create caps capabilities =
     workspace_folders = [];
     cached_workspace_targets = Hashtbl.create 10;
     cached_scans = Hashtbl.create 10;
+    cached_document_versions = Hashtbl.create 10;
     cached_session;
     skipped_local_fingerprints = [];
     user_settings = User_settings.default;
@@ -271,6 +273,12 @@ let runner_conf session =
 
 let previous_scan_of_file session file =
   Hashtbl.find_opt session.cached_scans file
+
+let document_version session file =
+  Hashtbl.find_opt session.cached_document_versions file
+
+let set_document_version session file version =
+  Hashtbl.replace session.cached_document_versions file version
 
 let save_local_skipped_fingerprints session =
   let save_dir =

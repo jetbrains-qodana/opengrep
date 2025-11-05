@@ -196,8 +196,8 @@ let scan_something ?targets session =
   (* LSP expects empty diagnostics to clear problems *)
   let files = Session.scanned_files session in
   Lwt.return
-    (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij results
-       files)
+    (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
+       ~get_version:(Session.document_version session) results files)
 
 (** Scan all folders in the workspace *)
 let scan_workspace session =
@@ -273,7 +273,7 @@ let scan_file session uri =
     Session.record_results session results files;
     Lwt.return
       (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
-         results files)
+         ~get_version:(Session.document_version session) results files)
   in
   Logs.app (fun m -> m "Scanned single file");
   Reply.Later
