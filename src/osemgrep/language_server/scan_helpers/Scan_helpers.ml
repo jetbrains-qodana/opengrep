@@ -236,6 +236,8 @@ let scan_open_documents (session : Session.t) =
 let scan_file session uri =
   Logs.app (fun m -> m "Scanning single file");
   let file = uri |> Uri.to_path |> Fpath.v in
+  (* Capture version immediately to avoid race conditions *)
+  let document_version = Session.document_version session file in
   let scan_on_miss =
     Session.scan_on_miss session
     |> Option.map String.lowercase_ascii
@@ -273,7 +275,7 @@ let scan_file session uri =
     Session.record_results session results files;
     Lwt.return
       (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
-         ~get_version:(Session.document_version session) results files)
+         ~get_version:(fun _ -> document_version) results files)
   in
   Logs.app (fun m -> m "Scanned single file");
   Reply.Later
