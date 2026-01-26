@@ -116,7 +116,7 @@ let on_request (type r) server (req_id : Id.t) (request : r CR.t) :
   | CR.Shutdown ->
       Logs.app (fun m -> m "Shutting down server");
       Session.save_local_skipped_fingerprints server.session;
-      (server, Reply.empty)
+      process_result ((), server)
   | CR.DebugEcho params -> process_result (params, server)
   | _ ->
       Logs.debug (fun m ->

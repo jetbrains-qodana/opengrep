@@ -43,10 +43,28 @@ module Io : RPC_server.LSIO = struct
               let result = String.concat "" (List.rev acc) in
               Lwt.return (Some result)
             else
-              let%lwt line = Lwt_io.read ~count:n inc in
-              read_exactly (line :: acc) (n - String.length line)
+              let%lwt chunk = Lwt_io.read ~count:n inc in
+              read_exactly (chunk :: acc) (n - String.length chunk)
           in
-          read_exactly [] n
+          let%lwt res = read_exactly [] n in
+          match res with
+          | None -> Lwt.return None
+          | Some buf -> (
+              match Yojson.Safe.from_string buf with
+              | `Assoc fields -> (
+                  match List.assoc_opt "params" fields with
+                  | Some `Null ->
+                      let filtered =
+                        List.filter
+                          (fun (k, v) ->
+                            not (String.equal k "params" && v = `Null))
+                          fields
+                      in
+                      Lwt.return
+                        (Some (Yojson.Safe.to_string (`Assoc filtered)))
+                  | _ -> Lwt.return (Some buf))
+              | _ -> Lwt.return (Some buf)
+              | exception _ -> Lwt.return (Some buf))
       end)
 
   let read () = RPC_IO.read Lwt_io.stdin
