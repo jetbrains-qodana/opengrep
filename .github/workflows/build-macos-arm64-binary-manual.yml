@@ -1,0 +1,174 @@
+name: build-macos-arm64-binary-manual
+on:
+  workflow_dispatch:
+    inputs:
+      use-cache:
+        default: true
+        description: Use Opam Cache - uncheck to disable cache for a complete from-scratch build
+        required: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write  # for Cosign keyless signing
+
+jobs:
+
+  build-core:
+    runs-on: macos-14-xlarge
+    strategy:
+      matrix:
+        ocaml_version: ["5.3.0"]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set GHA cache for OPAM in ~/.opam
+        if: ${{ inputs.use-cache }}
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache@v4
+        with:
+          key: ${{ runner.os }}-${{ runner.arch }}-v1-opam-${{ matrix.ocaml_version }}-${{ hashFiles('opam/*.opam') }}
+          path: ~/.opam
+      - name: Install dependencies
+        run: ./scripts/osx-setup-for-release.sh ${{ matrix.ocaml_version }}
+      - name: Compile opengrep
+        run: opam exec -- make core
+      - name: Make artifact for ./bin/opengrep-core
+        run: |
+          mkdir artifacts
+          cp ./bin/opengrep-core artifacts/
+          tar czf artifacts.tgz artifacts
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
+        with:
+          name: opengrep-osx-arm64
+          path: artifacts.tgz
+
+  build-wheels:
+    needs: build-core
+    runs-on: macos-14-xlarge
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
+        with:
+          name: opengrep-osx-arm64
+      - name: Build wheels
+        run: |
+          tar xvfz artifacts.tgz
+          cp artifacts/* cli/src/semgrep/bin
+          ./scripts/build-wheels.sh --plat-name macosx_11_0_arm64
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
+        with:
+          name: osx-arm64-wheel
+          path: cli/dist.zip
+
+  build-self-contained-binary:
+    needs: build-wheels
+    runs-on: macos-14-xlarge
+    steps:
+      - name: Install ccache
+        run: brew install ccache
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set Nuitka cache dir
+        run: echo "NUITKA_CACHE_DIR=${{ github.workspace }}/_nuitka" >> $GITHUB_ENV
+
+      - name: Make GHA cache invariant to opengrep version
+        run: rm cli/src/semgrep/__init__.py
+
+      - name: Set GHA cache for Nuitka
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache@v4
+        with:
+          key: ${{ runner.os }}-${{ runner.arch }}-v1-nuitka-${{ hashFiles('cli/src/semgrep/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-v1-nuitka-
+          path: "${{ env.NUITKA_CACHE_DIR }}"
+
+      - name: Install pipenv
+        run: |
+          python -m pip install --no-cache-dir --upgrade pipenv
+          pipenv --python 3.13
+
+      - name: Install nuitka and dependencies
+        run: pipenv run pip install nuitka==2.8.9 protobuf jaraco.text
+
+      - name: Install additional dependencies
+        run: pipenv run pip install chardet charset-normalizer
+
+      - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
+        with:
+          name: osx-arm64-wheel
+
+      - run: unzip dist.zip
+
+      - name: Install opengrep
+        run: |
+          pipenv run pip install dist/*.whl
+          unzip dist/*.whl -d _wheel
+
+      - name: Export OPENGREP_VERSION
+        run: echo "OPENGREP_VERSION=$(pipenv run opengrep --version)" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Set SRC_SEMGREP_DIR with wheel contents
+        run: |
+          echo \
+          "SRC_SEMGREP_DIR=\
+          ${GITHUB_WORKSPACE}/_wheel/opengrep-$OPENGREP_VERSION.data/purelib/semgrep" \
+          >> $GITHUB_ENV
+
+      - name: Build executable
+        run: pipenv run bash ./scripts/build-nuitka.sh "v$OPENGREP_VERSION" true $SRC_SEMGREP_DIR
+
+      - name: Zip artifact
+        run: zip -j opengrep.zip cli/opengrep
+
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
+        with:
+          name: opengrep_macos_arm64_binary
+          path: opengrep.zip
+
+  sign-binary:
+    needs: build-self-contained-binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
+        with:
+          name: opengrep_macos_arm64_binary
+
+      - name: Unzip binary
+        run: unzip opengrep.zip
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign binary
+        run: |
+          cosign sign-blob \
+            --yes \
+            --output-signature opengrep.sig \
+            --output-certificate opengrep.cert \
+            opengrep
+
+      - name: Zip signed artifacts
+        run: zip opengrep-signed.zip opengrep opengrep.sig opengrep.cert
+
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
+        with:
+          name: opengrep_macos_arm64_binary_signed
+          path: opengrep-signed.zip

@@ -35,11 +35,10 @@ jobs:
         with:
           submodules: true
       - run: |
-          yum update -y
-          yum install -y zip python3-pip python3.9
-          alternatives --remove-all python3
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
-          alternatives --auto python3
+          yum update -y --exclude=xkeyboard-config --exclude=libxkbcommon
+          yum install -y zip
+          # Use pre-installed Python from manylinux container (AlmaLinux aarch64 mirrors are broken)
+          echo "/opt/python/cp39-cp39/bin" >> $GITHUB_PATH
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: opengrep-core-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}

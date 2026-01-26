@@ -18,11 +18,12 @@ jobs:
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     steps:
       - run: |
-          yum update -y
-          yum install -y zip python3.12-pip python3.12 python3.12-devel ccache patchelf
-          alternatives --remove-all python3
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
-          alternatives --auto python3
+          yum update -y --exclude=xkeyboard-config --exclude=libxkbcommon
+          yum install -y zip ccache patchelf
+          export PATH="/opt/python/cp313-cp313/bin:$PATH"
+          echo "PATH=/opt/python/cp313-cp313/bin:$PATH" >> $GITHUB_ENV
+          # Extract static Python libraries for Nuitka
+          cd /opt/_internal && tar xf static-libs-for-embedding-only.tar.xz
       
       # - run: find / -name "libpython*" #; exit 1
       # - run: yum install -y zip
