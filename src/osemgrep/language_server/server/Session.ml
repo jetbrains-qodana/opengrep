@@ -143,7 +143,9 @@ let targets session =
   (* These are "dirty paths" because they may not necessarily be files. They may also be folders.
    *)
   let dirty_paths_by_workspace =
-    List_.map (fun f -> (f, dirty_paths_of_folder f)) session.workspace_folders
+    if session.user_settings.only_git_dirty then
+      List_.map (fun f -> (f, dirty_paths_of_folder f)) session.workspace_folders
+    else List_.map (fun f -> (f, None)) session.workspace_folders
   in
   let member_folder_dirty_files file folder =
     let dirty_paths_opt = List.assoc folder dirty_paths_by_workspace in
