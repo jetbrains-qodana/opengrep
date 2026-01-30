@@ -108,6 +108,9 @@ val record_results :
 (** [record_results t results files] records the results of a scan in the session. This is
     used when generating code actions (such as autofix) *)
 
+val scan_on_miss : t -> string option
+(* [scan_on_miss t] returns the optional scanOnMiss behavior from user settings. *)
+
 val update_workspace_folders :
   ?added:Fpath.t list -> ?removed:Fpath.t list -> t -> t
 (** [update_workspace_folders ?added ?removed t] updates the workspace folders in the session.

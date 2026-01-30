@@ -2,6 +2,7 @@ type t = {
   configuration : string list;
   exclude : string list;
   include_ : string list;
+  scan_on_miss : string option;
   jobs : int;
   max_memory : int;
   max_match_per_file : int;

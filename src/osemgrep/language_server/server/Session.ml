@@ -371,3 +371,5 @@ let record_results session results files =
     (fun (f, results) -> Hashtbl.add session.cached_scans f results)
     results_by_file;
   ()
+
+let scan_on_miss session = session.user_settings.scan_on_miss

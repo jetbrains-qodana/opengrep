@@ -236,6 +236,10 @@ let scan_open_documents (session : Session.t) =
 let scan_file session uri =
   Logs.app (fun m -> m "Scanning single file");
   let file = uri |> Uri.to_path |> Fpath.v in
+  let scan_on_miss =
+    Session.scan_on_miss session
+    |> Option.map String.lowercase_ascii
+  in
   let get_diagnostics () =
     let%lwt results =
       let%lwt results, _ =
@@ -246,13 +250,19 @@ let scan_file session uri =
           (* This feels fine since if it is an actual target, we need to do this, and if not *)
           (* then the user won't see results either way. *)
           if not (List.mem file session_targets) then (
-            Logs.debug (fun m ->
-                m
-                  "File %a is not in the session targets recalculating targets \
-                   just in case"
-                  Fpath.pp file);
-            Session.cache_workspace_targets session);
-          if List.mem file session_targets then targets else []
+            match scan_on_miss with
+            | Some "always" -> targets
+            | Some "skip" -> []
+            | _ ->
+                Logs.debug (fun m ->
+                    m
+                      "File %a is not in the session targets recalculating \
+                       targets just in case"
+                      Fpath.pp file);
+                Session.cache_workspace_targets session;
+                let session_targets_after = Session.targets session in
+                if List.mem file session_targets_after then targets else [])
+          else targets
         in
         run_semgrep_detached ~targets session
       in

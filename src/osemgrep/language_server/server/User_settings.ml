@@ -28,6 +28,7 @@ type t = {
   configuration : string list; [@default []]
   exclude : string list; [@default []]
   include_ : string list; [@key "include"] [@default []]
+  scan_on_miss : string option; [@key "scanOnMiss"] [@default None]
   jobs : int; [@default Domainslib_.get_cpu_count()]
   max_memory : int; [@key "maxMemory"] [@default 0]
   max_match_per_file : int;
