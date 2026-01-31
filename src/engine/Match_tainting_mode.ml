@@ -668,73 +668,76 @@ let check_rules ~match_hook
     (rules : R.taint_rule list) (xconf : Match_env.xconfig)
     (xtarget : Xtarget.t) :
     Core_profiling.rule_profiling Core_result.match_result list =
-  (* Check for language support warnings when taint_intrafile is enabled *)
-  (Dataflow_tainting.reset_constructor ();
-   match rules with
-   | rule :: _ -> (
-       (* Check if any rule has taint_intrafile enabled *)
-       let has_taint_intrafile =
-         match rule.options with
-         | Some opts -> opts.taint_intrafile
-         | None -> xconf.config.taint_intrafile
-       in
-       if has_taint_intrafile then
-         (* Warn for unsupported languages *)
-         let lang = xtarget.xlang |> Xlang.to_lang_exn in
-         match lang with
-         | Lang.Apex
-         | Lang.C
-         | Lang.Cpp
-         | Lang.Csharp
-         | Lang.Elixir
-         | Lang.Go
-         | Lang.Java
-         | Lang.Js
-         | Lang.Julia
-         | Lang.Kotlin
-         | Lang.Lua
-         | Lang.Python
-         | Lang.Ruby
-         | Lang.Rust
-         | Lang.Scala
-         | Lang.Swift
-         | Lang.Ts ->
-             (* Known supported languages - no warning *)
-             ()
-         | other_lang ->
-             (* Unknown or unsupported language - warn user *)
-             Logs.warn (fun m ->
-                 m
-                   "Cross-function taint analysis (--taint-intrafile) may not \
-                    be fully supported for %s. Results may be limited to \
-                    intraprocedural analysis only."
-                   (Lang.to_string other_lang)))
-   | [] -> ());
+  if xconf.skip_taint then
+    []
+  else (
+    (* Check for language support warnings when taint_intrafile is enabled *)
+    Dataflow_tainting.reset_constructor ();
+    (match rules with
+    | rule :: _ -> (
+        (* Check if any rule has taint_intrafile enabled *)
+        let has_taint_intrafile =
+          match rule.options with
+          | Some opts -> opts.taint_intrafile
+          | None -> xconf.config.taint_intrafile
+        in
+        if has_taint_intrafile then
+          (* Warn for unsupported languages *)
+          let lang = xtarget.xlang |> Xlang.to_lang_exn in
+          match lang with
+          | Lang.Apex
+          | Lang.C
+          | Lang.Cpp
+          | Lang.Csharp
+          | Lang.Elixir
+          | Lang.Go
+          | Lang.Java
+          | Lang.Js
+          | Lang.Julia
+          | Lang.Kotlin
+          | Lang.Lua
+          | Lang.Python
+          | Lang.Ruby
+          | Lang.Rust
+          | Lang.Scala
+          | Lang.Swift
+          | Lang.Ts ->
+              (* Known supported languages - no warning *)
+              ()
+          | other_lang ->
+              (* Unknown or unsupported language - warn user *)
+              Logs.warn (fun m ->
+                  m
+                    "Cross-function taint analysis (--taint-intrafile) may not \
+                     be fully supported for %s. Results may be limited to \
+                     intraprocedural analysis only."
+                    (Lang.to_string other_lang)))
+    | [] -> ());
 
-  (* We create a "formula cache" here, before dealing with individual rules, to
-     permit sharing of matches for sources, sanitizers, propagators, and sinks
-     between rules.
+    (* We create a "formula cache" here, before dealing with individual rules, to
+       permit sharing of matches for sources, sanitizers, propagators, and sinks
+       between rules.
 
-     In particular, this expects to see big gains due to shared propagators,
-     in Semgrep Pro. There may be some benefit in OSS, but it's low-probability.
-  *)
-  let per_file_formula_cache =
-    Formula_cache.mk_specialized_formula_cache rules
-  in
+       In particular, this expects to see big gains due to shared propagators,
+       in Semgrep Pro. There may be some benefit in OSS, but it's low-probability.
+    *)
+    let per_file_formula_cache =
+      Formula_cache.mk_specialized_formula_cache rules
+    in
 
-  rules
-  |> List.filter_map (fun rule ->
-         let xconf =
-           Match_env.adjust_xconfig_with_rule_options xconf rule.R.options
-         in
-         per_rule_boilerplate_fn
-           (rule :> R.rule)
-           (fun () ->
-             Logs_.with_debug_trace ~__FUNCTION__
-               ~pp_input:(fun _ ->
-                 "target: "
-                 ^ !!(xtarget.path.internal_path_to_content)
-                 ^ "\nruleid: "
-                 ^ (rule.id |> fst |> Rule_ID.to_string))
-               (fun () ->
-                 check_rule per_file_formula_cache rule match_hook xconf xtarget)))
+    rules
+    |> List.filter_map (fun rule ->
+           let xconf =
+             Match_env.adjust_xconfig_with_rule_options xconf rule.R.options
+           in
+           per_rule_boilerplate_fn
+             (rule :> R.rule)
+             (fun () ->
+               Logs_.with_debug_trace ~__FUNCTION__
+                 ~pp_input:(fun _ ->
+                   "target: "
+                   ^ !!(xtarget.path.internal_path_to_content)
+                   ^ "\nruleid: "
+                   ^ (rule.id |> fst |> Rule_ID.to_string))
+                 (fun () ->
+                   check_rule per_file_formula_cache rule match_hook xconf xtarget))))

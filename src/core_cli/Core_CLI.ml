@@ -870,7 +870,12 @@ let main_exn (caps : Cap.all_caps) (argv : string array) : unit =
                    targeting use opengrep"
           in
           let engine_config =
-            Engine_config.{ custom_ignore_pattern = !Flag.opengrep_ignore_pattern; taint_intrafile = None }
+            Engine_config.
+              {
+                custom_ignore_pattern = !Flag.opengrep_ignore_pattern;
+                taint_intrafile = None;
+                skip_taint = None;
+              }
           in
           let config = { config with target_source; ncores; engine_config } in
 

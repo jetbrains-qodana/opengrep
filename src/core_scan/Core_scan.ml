@@ -803,6 +803,10 @@ let mk_target_handler (caps : < Cap.time_limit >) (config : Core_scan_config.t)
           matching_conf = config.matching_conf;
           matching_explanations = config.matching_explanations;
           filter_irrelevant_rules = prefilter_cache_opt;
+          skip_taint =
+            (match config.engine_config.skip_taint with
+            | Some true -> true
+            | _ -> false);
         }
       in
       let rules, dependency_match_table = sca_rules_filtering target rules in

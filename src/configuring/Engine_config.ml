@@ -4,6 +4,7 @@
 type t = {
   custom_ignore_pattern : string option;
   taint_intrafile : bool option;
+  skip_taint : bool option;
   (* Add other configuration fields here as more global refs are migrated *)
 }
 [@@deriving show]
@@ -12,6 +13,7 @@ type t = {
 let default = {
   custom_ignore_pattern = None;
   taint_intrafile = None;
+  skip_taint = None;
 }
 
 (* Get the list of patterns to use for ignoring lines *)

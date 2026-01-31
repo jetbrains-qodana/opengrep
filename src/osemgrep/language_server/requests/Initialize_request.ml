@@ -43,6 +43,9 @@ let initialize_server server
     let scan_on_miss =
       initializationOptions |> member "scanOnMiss" |> to_bool_option
     in
+    let skip_taint =
+      initializationOptions |> member "skipTaint" |> to_bool_option
+    in
     let do_hover =
       initializationOptions |> member "doHover" |> to_bool_option
       |> Option.value ~default:false
@@ -60,7 +63,12 @@ let initialize_server server
       | Some v -> Some v
       | None -> res.scan_on_miss
     in
-    { res with do_hover; pro_intrafile; scan_on_miss }
+    let skip_taint =
+      match skip_taint with
+      | Some v -> Some v
+      | None -> res.skip_taint
+    in
+    { res with do_hover; pro_intrafile; scan_on_miss; skip_taint }
   in
   (* Semgrep scanning roots *)
   let workspace_folders =

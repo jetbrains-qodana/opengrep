@@ -53,6 +53,7 @@ type xconfig = {
    *)
   matching_explanations : bool;
   filter_irrelevant_rules : prefilter_config;
+  skip_taint : bool;
 
 }
 
@@ -128,4 +129,5 @@ let default_xconfig =
      * true when running as part of the regular code path (not testing code)
      *)
     filter_irrelevant_rules = NoPrefiltering;
+    skip_taint = false;
   }

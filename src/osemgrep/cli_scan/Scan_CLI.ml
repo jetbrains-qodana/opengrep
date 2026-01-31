@@ -1415,6 +1415,7 @@ let cmdline_term caps ~allow_empty_config : conf Term.t =
     let engine_config = {
       Engine_config.custom_ignore_pattern = opengrep_ignore_pattern;
       taint_intrafile = Some taint_intrafile;
+      skip_taint = None;
     } in
 
     if output_enclosing_context && not json then
