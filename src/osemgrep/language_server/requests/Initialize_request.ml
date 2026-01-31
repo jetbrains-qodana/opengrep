@@ -40,6 +40,9 @@ let initialize_server server
         (Yojson.Safe.pretty_to_string initializationOptions));
   let user_settings =
     let scan_options = initializationOptions |> member "scan" in
+    let scan_on_miss =
+      initializationOptions |> member "scanOnMiss" |> to_bool_option
+    in
     let do_hover =
       initializationOptions |> member "doHover" |> to_bool_option
       |> Option.value ~default:false
@@ -52,7 +55,12 @@ let initialize_server server
       scan_options |> User_settings.t_of_yojson
       |> Result.value ~default:server.session.user_settings
     in
-    { res with do_hover; pro_intrafile }
+    let scan_on_miss =
+      match scan_on_miss with
+      | Some v -> Some v
+      | None -> res.scan_on_miss
+    in
+    { res with do_hover; pro_intrafile; scan_on_miss }
   in
   (* Semgrep scanning roots *)
   let workspace_folders =

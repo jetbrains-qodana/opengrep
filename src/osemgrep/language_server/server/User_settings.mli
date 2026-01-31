@@ -2,7 +2,7 @@ type t = {
   configuration : string list;
   exclude : string list;
   include_ : string list;
-  scan_on_miss : string option;
+  scan_on_miss : bool option;
   jobs : int;
   max_memory : int;
   max_match_per_file : int;
@@ -17,6 +17,7 @@ type t = {
   ci : bool;
   do_hover : bool;
   pro_intrafile : bool;
+  skip_taint : bool;
 }
 
 val default : t

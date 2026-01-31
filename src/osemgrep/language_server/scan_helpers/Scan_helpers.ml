@@ -238,10 +238,7 @@ let scan_file session uri =
   let file = uri |> Uri.to_path |> Fpath.v in
   (* Capture version immediately to avoid race conditions *)
   let document_version = Session.document_version session file in
-  let scan_on_miss =
-    Session.scan_on_miss session
-    |> Option.map String.lowercase_ascii
-  in
+  let scan_on_miss = Session.scan_on_miss session in
   let get_diagnostics () =
     let%lwt results =
       let%lwt results, _ =
@@ -253,8 +250,8 @@ let scan_file session uri =
           (* then the user won't see results either way. *)
           if not (List.mem file session_targets) then (
             match scan_on_miss with
-            | Some "always" -> targets
-            | Some "skip" -> []
+            | Some true -> targets
+            | Some false -> []
             | _ ->
                 Logs.debug (fun m ->
                     m

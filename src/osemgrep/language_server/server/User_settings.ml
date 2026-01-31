@@ -28,7 +28,7 @@ type t = {
   configuration : string list; [@default []]
   exclude : string list; [@default []]
   include_ : string list; [@key "include"] [@default []]
-  scan_on_miss : string option; [@key "scanOnMiss"] [@default None]
+  scan_on_miss : bool option; [@key "scanOnMiss"] [@default None]
   jobs : int; [@default Domainslib_.get_cpu_count()]
   max_memory : int; [@key "maxMemory"] [@default 0]
   max_match_per_file : int;
@@ -50,6 +50,7 @@ type t = {
   ci : bool; [@default true]
   do_hover : bool; [@default false]
   pro_intrafile : bool; [@default false]
+  skip_taint : bool; [@key "skipTaint"] [@default false]
 }
 [@@deriving yojson]
 
@@ -75,6 +76,9 @@ let find_targets_conf_of_t settings : Find_targets.conf =
   }
 
 let core_runner_conf_of_t settings : Core_runner.conf =
+  let skip_taint =
+    if settings.skip_taint then Some true else None
+  in
   Core_runner.
     {
       num_jobs = settings.jobs;
@@ -94,5 +98,5 @@ let core_runner_conf_of_t settings : Core_runner.conf =
       time_flag = false;
       inline_metavariables = false;
       taint_intrafile = false;
-      engine_config = Engine_config.default;
+      engine_config = { Engine_config.default with skip_taint };
     }
