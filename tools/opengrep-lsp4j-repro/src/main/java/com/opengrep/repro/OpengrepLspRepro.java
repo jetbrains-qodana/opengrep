@@ -419,6 +419,10 @@ public final class OpengrepLspRepro {
         if (disableTargetCache != null) {
             initOptions.put("disableTargetCache", disableTargetCache);
         }
+        Boolean saneStderr = parseBooleanEnv("SANE_STDERR");
+        if (saneStderr != null) {
+            initOptions.put("saneStderr", saneStderr);
+        }
         Boolean scanOnMiss = parseScanOnMissEnv();
         if (scanOnMiss != null) {
             initOptions.put("scanOnMiss", scanOnMiss);
