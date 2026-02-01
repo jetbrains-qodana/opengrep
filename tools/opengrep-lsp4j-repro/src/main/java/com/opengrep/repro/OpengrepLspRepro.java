@@ -6,10 +6,12 @@ import com.google.gson.JsonObject;
 import org.eclipse.lsp4j.ApplyWorkspaceEditParams;
 import org.eclipse.lsp4j.ApplyWorkspaceEditResponse;
 import org.eclipse.lsp4j.ClientCapabilities;
+import org.eclipse.lsp4j.CreateFilesParams;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.DidCloseTextDocumentParams;
 import org.eclipse.lsp4j.DidOpenTextDocumentParams;
+import org.eclipse.lsp4j.FileCreate;
 import org.eclipse.lsp4j.InitializeParams;
 import org.eclipse.lsp4j.InitializedParams;
 import org.eclipse.lsp4j.MessageActionItem;
@@ -27,6 +29,7 @@ import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageServer;
 import org.eclipse.lsp4j.services.TextDocumentService;
+import org.eclipse.lsp4j.services.WorkspaceService;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -63,6 +66,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class OpengrepLspRepro {
     private static final int DEFAULT_THREADS = 4;
     private static final Duration DEFAULT_DIAGNOSTIC_TIMEOUT = Duration.ofSeconds(10);
+    private static final int DEFAULT_MAX_FILES = 20;
     private static final Gson GSON = new Gson();
 
     public static void main(String[] args) throws Exception {
@@ -71,6 +75,8 @@ public final class OpengrepLspRepro {
             System.err.println("NOPCOMMERCE_PATH is not a directory: " + workspace);
             System.exit(2);
         }
+        Path overlayDir = Files.createTempDirectory("opengrep-lsp-overlay-").toAbsolutePath();
+        System.out.println("Overlay workspace: " + overlayDir);
 
         List<Path> files = listWorkspaceFiles(workspace);
         Path onlyList = resolveOnlyFilesList();
@@ -79,7 +85,7 @@ public final class OpengrepLspRepro {
             System.out.println("Filtering to list: " + onlyList.toAbsolutePath());
             System.out.println("Files after list filter: " + files.size());
         }
-        int maxFiles = parseIntEnv("MAX_FILES");
+        int maxFiles = resolveMaxFiles();
         List<Path> filesToProcess;
         if (maxFiles > 0 && files.size() > maxFiles) {
             filesToProcess = new ArrayList<>(files.subList(0, maxFiles));
@@ -101,8 +107,9 @@ public final class OpengrepLspRepro {
         Path stderrLog = Paths.get("opengrep-lsp-stderr" + suffix + ".log").toAbsolutePath();
         Thread stderrThread = startStderrDrainer(process.getErrorStream(), stderrLog);
 
+        boolean versionMatch = resolveVersionMatch(args);
         Stats stats = new Stats();
-        DiagnosticsGate gate = new DiagnosticsGate();
+        DiagnosticsGate gate = new DiagnosticsGate(versionMatch);
         LineLogger telemetryLogger = new LineLogger(Paths.get("telemetry" + suffix + ".log").toAbsolutePath());
         LineLogger perFileLogger = buildPerFileLogger(suffix);
 
@@ -117,15 +124,17 @@ public final class OpengrepLspRepro {
         client.attachServer(server);
         Future<Void> listening = launcher.startListening();
 
-        initializeServer(server, workspace, client);
+        initializeServer(server, workspace, overlayDir, client);
 
         TextDocumentService textService = server.getTextDocumentService();
+        WorkspaceService workspaceService = server.getWorkspaceService();
         Duration diagnosticTimeout = resolveDiagnosticTimeout();
         AtomicInteger versionCounter = new AtomicInteger(1);
         int threads = resolveThreads();
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         AtomicInteger nextIndex = new AtomicInteger(0);
 
+        System.out.println("Version match enabled: " + versionMatch);
         long wallStart = System.nanoTime();
         for (int i = 0; i < threads; i++) {
             executor.submit(() -> {
@@ -135,7 +144,7 @@ public final class OpengrepLspRepro {
                         break;
                     }
                     Path file = finalFiles.get(idx);
-                    processFile(file, textService, gate, stats, versionCounter, diagnosticTimeout, perFileLogger);
+                    processFile(file, workspace, overlayDir, textService, workspaceService, gate, stats, versionCounter, diagnosticTimeout, perFileLogger, versionMatch);
                 }
             });
         }
@@ -162,20 +171,23 @@ public final class OpengrepLspRepro {
         writeList(stats.problemUris(), Paths.get("problem-files" + suffix + ".txt").toAbsolutePath());
         writeDiagnosticSummary(stats.diagnosticsSummary(), Paths.get("diagnostics-summary" + suffix + ".txt").toAbsolutePath());
 
+        cleanupOverlay(overlayDir);
+
         if (!stats.failures().isEmpty()) {
             System.exit(1);
         }
     }
 
-    private static void initializeServer(LanguageServer server, Path workspace, OpenGrepClient client) throws Exception {
+    private static void initializeServer(LanguageServer server, Path workspace, Path overlayDir, OpenGrepClient client) throws Exception {
         InitializeParams init = new InitializeParams();
         init.setProcessId((int) ProcessHandle.current().pid());
         init.setRootUri(workspace.toUri().toString());
         init.setCapabilities(new ClientCapabilities());
         init.setInitializationOptions(buildInitializationOptions());
-        init.setWorkspaceFolders(Collections.singletonList(
-                new WorkspaceFolder(workspace.toUri().toString(), "nopCommerce")
-        ));
+        List<WorkspaceFolder> folders = new ArrayList<>();
+        folders.add(new WorkspaceFolder(workspace.toUri().toString(), "nopCommerce"));
+        folders.add(new WorkspaceFolder(overlayDir.toUri().toString(), overlayDir.getFileName().toString()));
+        init.setWorkspaceFolders(folders);
         server.initialize(init).get(30, TimeUnit.SECONDS);
         server.initialized(new InitializedParams());
         awaitRulesRefreshed(client);
@@ -206,46 +218,63 @@ public final class OpengrepLspRepro {
 
     private static void processFile(
             Path file,
+            Path workspace,
+            Path overlayDir,
             TextDocumentService textService,
+            WorkspaceService workspaceService,
             DiagnosticsGate gate,
             Stats stats,
             AtomicInteger versionCounter,
             Duration diagnosticTimeout,
-            LineLogger perFileLogger
+            LineLogger perFileLogger,
+            boolean versionMatch
     ) {
-        String uri = documentUriFor(file);
+        Path overlayPath = resolveOverlayPath(file, workspace, overlayDir);
+        String uri = documentUriFor(overlayPath);
         stats.totalFiles.increment();
 
-        CompletableFuture<PublishDiagnosticsParams> future = gate.register(uri);
+        int documentVersion = versionCounter.getAndIncrement();
+        CompletableFuture<DiagnosticOutcome> future = gate.register(uri, documentVersion);
         long start = System.nanoTime();
         long fileSize = safeFileSize(file);
-
-        TextDocumentItem item = new TextDocumentItem(
-                uri,
-                languageIdFor(file),
-                versionCounter.getAndIncrement(),
-                ""
-        );
-        textService.didOpen(new DidOpenTextDocumentParams(item));
 
         boolean success = false;
         String status = "ok";
         int diagTotal = 0;
         int diagErrors = 0;
         int diagWarnings = 0;
+        Integer actualVersion = null;
         try {
-            PublishDiagnosticsParams params = future.get(diagnosticTimeout.toMillis(), TimeUnit.MILLISECONDS);
-            List<Diagnostic> diagnostics = params.getDiagnostics();
-            diagTotal = diagnostics.size();
-            for (Diagnostic diagnostic : diagnostics) {
-                DiagnosticSeverity severity = diagnostic.getSeverity();
-                if (severity == DiagnosticSeverity.Error) {
-                    diagErrors++;
-                } else if (severity == DiagnosticSeverity.Warning) {
-                    diagWarnings++;
+            copyToOverlay(file, overlayPath);
+            sendDidCreate(workspaceService, overlayPath);
+            TextDocumentItem item = new TextDocumentItem(
+                    uri,
+                    languageIdFor(file),
+                    documentVersion,
+                    ""
+            );
+            textService.didOpen(new DidOpenTextDocumentParams(item));
+
+            DiagnosticOutcome outcome = future.get(diagnosticTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            actualVersion = outcome.actualVersion;
+            if (outcome.status == OutcomeStatus.OK) {
+                PublishDiagnosticsParams params = outcome.params;
+                List<Diagnostic> diagnostics = params.getDiagnostics();
+                diagTotal = diagnostics.size();
+                for (Diagnostic diagnostic : diagnostics) {
+                    DiagnosticSeverity severity = diagnostic.getSeverity();
+                    if (severity == DiagnosticSeverity.Error) {
+                        diagErrors++;
+                    } else if (severity == DiagnosticSeverity.Warning) {
+                        diagWarnings++;
+                    }
                 }
+                stats.addDiagnostics(uri, diagnostics);
+                success = true;
+            } else {
+                stats.failVersionMismatch(uri, documentVersion, actualVersion);
+                status = "version-miss";
             }
-            success = true;
         } catch (TimeoutException timeout) {
             stats.failTimeout(uri);
             status = "timeout";
@@ -256,6 +285,7 @@ public final class OpengrepLspRepro {
             gate.unregister(uri);
             stats.addProcessingNanos(System.nanoTime() - start);
             textService.didClose(new DidCloseTextDocumentParams(new TextDocumentIdentifier(uri)));
+            deleteOverlayFile(overlayPath);
         }
 
         if (success) {
@@ -268,8 +298,10 @@ public final class OpengrepLspRepro {
             long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             String line = String.format(
                     Locale.ROOT,
-                    "%s\tstatus=%s\tms=%d\tbytes=%d\tdiagTotal=%d\tdiagErrors=%d\tdiagWarnings=%d",
-                    uri, status, elapsedMs, fileSize, diagTotal, diagErrors, diagWarnings
+                    "%s\toverlay=%s\tstatus=%s\tms=%d\tbytes=%d\tdiagTotal=%d\tdiagErrors=%d\tdiagWarnings=%d\tversion=%d\tdiagVersion=%s",
+                    file.toAbsolutePath().normalize(), overlayPath.toAbsolutePath().normalize(),
+                    status, elapsedMs, fileSize, diagTotal, diagErrors, diagWarnings, documentVersion,
+                    actualVersion == null ? "null" : actualVersion.toString()
             );
             perFileLogger.log(line);
         }
@@ -340,6 +372,7 @@ public final class OpengrepLspRepro {
         System.out.println("Files total: " + totalFiles);
         System.out.println("Failures (timeout + errors): " + stats.failures.sum());
         System.out.println("Timeout failures: " + stats.timeoutFailures.sum());
+        System.out.println("Version mismatches: " + stats.versionMismatchFailures.sum());
         System.out.println("Total time: " + formatDuration(wallElapsedNanos));
         System.out.println("Avg time per file: " + formatDuration(avgNanos));
         System.out.println("Diagnostics errors: " + stats.errorDiagnostics.sum());
@@ -376,13 +409,16 @@ public final class OpengrepLspRepro {
         scan.put("maxTargetBytes", 0);
         scan.put("onlyGitDirty", false);
         scan.put("ci", false);
-
         Map<String, Object> metrics = new ConcurrentHashMap<>();
         metrics.put("enabled", false);
         metrics.put("isNewAppInstall", true);
 
         Map<String, Object> initOptions = new ConcurrentHashMap<>();
         initOptions.put("scan", scan);
+        Boolean disableTargetCache = parseBooleanEnv("DISABLE_TARGET_CACHE");
+        if (disableTargetCache != null) {
+            initOptions.put("disableTargetCache", disableTargetCache);
+        }
         Boolean scanOnMiss = parseScanOnMissEnv();
         if (scanOnMiss != null) {
             initOptions.put("scanOnMiss", scanOnMiss);
@@ -502,6 +538,48 @@ public final class OpengrepLspRepro {
         return null;
     }
 
+    private static boolean resolveVersionMatch(String[] args) {
+        Boolean fromArgs = parseBooleanFlag(args, "--version-match");
+        if (fromArgs != null) {
+            return fromArgs;
+        }
+        Boolean fromEnv = parseBooleanEnv("VERSION_MATCH");
+        return fromEnv != null && fromEnv;
+    }
+
+    private static Boolean parseBooleanFlag(String[] args, String flagName) {
+        String prefix = flagName + "=";
+        for (String arg : args) {
+            if (arg.equals(flagName)) {
+                return true;
+            }
+            if (arg.equals("--no-" + flagName.substring(2))) {
+                return false;
+            }
+            if (arg.startsWith(prefix)) {
+                String value = arg.substring(prefix.length());
+                if (!value.isEmpty()) {
+                    Boolean parsed = parseBooleanValue(value);
+                    if (parsed != null) {
+                        return parsed;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Boolean parseBooleanValue(String value) {
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.equals("1") || normalized.equals("true") || normalized.equals("yes")) {
+            return true;
+        }
+        if (normalized.equals("0") || normalized.equals("false") || normalized.equals("no")) {
+            return false;
+        }
+        return null;
+    }
+
     private static Boolean parseScanOnMissEnv() {
         String value = System.getenv("SCAN_ON_MISS");
         if (value == null || value.isBlank()) {
@@ -544,6 +622,14 @@ public final class OpengrepLspRepro {
         } catch (NumberFormatException ignored) {
             return DEFAULT_THREADS;
         }
+    }
+
+    private static int resolveMaxFiles() {
+        int fromEnv = parseIntEnv("MAX_FILES");
+        if (fromEnv > 0) {
+            return fromEnv;
+        }
+        return DEFAULT_MAX_FILES;
     }
 
     private static Path resolveOnlyFilesList() {
@@ -609,6 +695,104 @@ public final class OpengrepLspRepro {
     private static String documentUriFor(Path file) {
         Path absolute = file.toAbsolutePath().normalize();
         return toStrictFileUri(absolute);
+    }
+
+    private static Path resolveOverlayPath(Path file, Path workspace, Path overlayRoot) {
+        Path absoluteFile = file.toAbsolutePath().normalize();
+        Path absoluteWorkspace = workspace.toAbsolutePath().normalize();
+        Path relative;
+        try {
+            relative = absoluteWorkspace.relativize(absoluteFile);
+        } catch (IllegalArgumentException ex) {
+            relative = absoluteFile.getFileName();
+        }
+        return overlayRoot.resolve(relative).normalize();
+    }
+
+    private static void copyToOverlay(Path source, Path dest) throws IOException {
+        Path parent = dest.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        byte[] raw = Files.readAllBytes(source);
+        byte[] normalized = normalizeLineEndingsAndBom(raw);
+        Files.write(dest, normalized);
+    }
+
+    private static void deleteOverlayFile(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static void cleanupOverlay(Path overlayRoot) {
+        try {
+            if (!Files.exists(overlayRoot)) {
+                return;
+            }
+            try (var walk = Files.walk(overlayRoot)) {
+                walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                    }
+                });
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static void sendDidCreate(WorkspaceService workspaceService, Path overlayPath) {
+        try {
+            String uri = documentUriFor(overlayPath);
+            FileCreate fileCreate = new FileCreate(uri);
+            workspaceService.didCreateFiles(new CreateFilesParams(List.of(fileCreate)));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static byte[] normalizeLineEndingsAndBom(byte[] raw) {
+        int offset = 0;
+        if (raw.length >= 3
+                && (raw[0] & 0xFF) == 0xEF
+                && (raw[1] & 0xFF) == 0xBB
+                && (raw[2] & 0xFF) == 0xBF) {
+            offset = 3;
+        }
+        byte[] tmp = new byte[raw.length - offset];
+        System.arraycopy(raw, offset, tmp, 0, tmp.length);
+        int len = tmp.length;
+        int crlfPairs = 0;
+        boolean hasCr = false;
+        for (int i = 0; i < len; i++) {
+            if (tmp[i] == '\r') {
+                hasCr = true;
+                if (i + 1 < len && tmp[i + 1] == '\n') {
+                    crlfPairs++;
+                    i++;
+                }
+            }
+        }
+        if (!hasCr) {
+            return tmp;
+        }
+        byte[] out = new byte[len - crlfPairs];
+        int j = 0;
+        for (int i = 0; i < len; i++) {
+            byte b = tmp[i];
+            if (b == '\r') {
+                if (i + 1 < len && tmp[i + 1] == '\n') {
+                    out[j++] = '\n';
+                    i++;
+                } else {
+                    out[j++] = '\n';
+                }
+            } else {
+                out[j++] = b;
+            }
+        }
+        return out;
     }
 
     private static String toStrictFileUri(Path path) {
@@ -717,23 +901,38 @@ public final class OpengrepLspRepro {
     }
 
     private static final class DiagnosticsGate {
-        private final ConcurrentHashMap<String, CompletableFuture<PublishDiagnosticsParams>> byUri = new ConcurrentHashMap<>();
+        private final boolean versionMatch;
+        private final ConcurrentHashMap<String, PendingDiagnostic> pendingByUri = new ConcurrentHashMap<>();
 
-        CompletableFuture<PublishDiagnosticsParams> register(String uri) {
-            CompletableFuture<PublishDiagnosticsParams> future = new CompletableFuture<>();
-            byUri.put(uri, future);
+        DiagnosticsGate(boolean versionMatch) {
+            this.versionMatch = versionMatch;
+        }
+
+        CompletableFuture<DiagnosticOutcome> register(String uri, int expectedVersion) {
+            CompletableFuture<DiagnosticOutcome> future = new CompletableFuture<>();
+            pendingByUri.put(uri, new PendingDiagnostic(expectedVersion, future));
             return future;
         }
 
         void resolve(PublishDiagnosticsParams params) {
-            CompletableFuture<PublishDiagnosticsParams> future = byUri.get(params.getUri());
-            if (future != null && !future.isDone()) {
-                future.complete(params);
+            PendingDiagnostic pending = pendingByUri.get(params.getUri());
+            if (pending == null || pending.future.isDone()) {
+                return;
+            }
+            if (!versionMatch) {
+                pending.future.complete(DiagnosticOutcome.ok(params));
+                return;
+            }
+            Integer actual = params.getVersion();
+            if (actual != null && actual == pending.expectedVersion) {
+                pending.future.complete(DiagnosticOutcome.ok(params));
+            } else {
+                pending.future.complete(DiagnosticOutcome.versionMismatch(params, pending.expectedVersion, actual));
             }
         }
 
         void unregister(String uri) {
-            byUri.remove(uri);
+            pendingByUri.remove(uri);
         }
     }
 
@@ -746,6 +945,7 @@ public final class OpengrepLspRepro {
         private final LongAdder processingNanos = new LongAdder();
         private final LongAdder failures = new LongAdder();
         private final LongAdder timeoutFailures = new LongAdder();
+        private final LongAdder versionMismatchFailures = new LongAdder();
         private final LongAdder totalFiles = new LongAdder();
         private final LongAdder successes = new LongAdder();
         private final Queue<String> failuresList = new ConcurrentLinkedQueue<>();
@@ -753,6 +953,7 @@ public final class OpengrepLspRepro {
         private final ConcurrentHashMap.KeySetView<String, Boolean> errorDiagnosticUris = ConcurrentHashMap.newKeySet();
         private final ConcurrentHashMap.KeySetView<String, Boolean> warningDiagnosticUris = ConcurrentHashMap.newKeySet();
         private final ConcurrentHashMap.KeySetView<String, Boolean> timeoutUris = ConcurrentHashMap.newKeySet();
+        private final ConcurrentHashMap.KeySetView<String, Boolean> versionMismatchUris = ConcurrentHashMap.newKeySet();
 
         void addDiagnostics(String uri, List<Diagnostic> diagnostics) {
             totalDiagnostics.add(diagnostics.size());
@@ -790,6 +991,12 @@ public final class OpengrepLspRepro {
             timeoutUris.add(uri);
         }
 
+        void failVersionMismatch(String uri, int expected, Integer actual) {
+            versionMismatchFailures.increment();
+            failuresList.add("version-miss: " + uri + " expected=" + expected + " actual=" + (actual == null ? "null" : actual));
+            versionMismatchUris.add(uri);
+        }
+
         void failException(String uri, Exception ex) {
             failuresList.add("error: " + uri + " - " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
         }
@@ -809,6 +1016,7 @@ public final class OpengrepLspRepro {
         Iterable<String> problemUris() {
             var combined = new ArrayList<String>();
             combined.addAll(timeoutUris);
+            combined.addAll(versionMismatchUris);
             combined.addAll(errorDiagnosticUris);
             Collections.sort(combined);
             return combined;
@@ -858,7 +1066,6 @@ public final class OpengrepLspRepro {
         @Override
         public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
             gate.resolve(diagnostics);
-            stats.addDiagnostics(diagnostics.getUri(), diagnostics.getDiagnostics());
         }
 
         @Override
@@ -1091,5 +1298,42 @@ public final class OpengrepLspRepro {
         } catch (IOException ignored) {
             return -1L;
         }
+    }
+
+    private static final class PendingDiagnostic {
+        private final int expectedVersion;
+        private final CompletableFuture<DiagnosticOutcome> future;
+
+        private PendingDiagnostic(int expectedVersion, CompletableFuture<DiagnosticOutcome> future) {
+            this.expectedVersion = expectedVersion;
+            this.future = future;
+        }
+    }
+
+    private static final class DiagnosticOutcome {
+        private final PublishDiagnosticsParams params;
+        private final OutcomeStatus status;
+        private final Integer expectedVersion;
+        private final Integer actualVersion;
+
+        private DiagnosticOutcome(PublishDiagnosticsParams params, OutcomeStatus status, Integer expectedVersion, Integer actualVersion) {
+            this.params = params;
+            this.status = status;
+            this.expectedVersion = expectedVersion;
+            this.actualVersion = actualVersion;
+        }
+
+        private static DiagnosticOutcome ok(PublishDiagnosticsParams params) {
+            return new DiagnosticOutcome(params, OutcomeStatus.OK, null, params.getVersion());
+        }
+
+        private static DiagnosticOutcome versionMismatch(PublishDiagnosticsParams params, int expected, Integer actual) {
+            return new DiagnosticOutcome(params, OutcomeStatus.VERSION_MISMATCH, expected, actual);
+        }
+    }
+
+    private enum OutcomeStatus {
+        OK,
+        VERSION_MISMATCH
     }
 }
