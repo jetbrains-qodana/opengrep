@@ -118,6 +118,15 @@ val record_results :
 val scan_on_miss : t -> bool option
 (* [scan_on_miss t] returns the optional scanOnMiss behavior from user settings. *)
 
+val sane_stderr : t -> bool
+(** [sane_stderr t] returns whether noisy stderr logs should be suppressed. *)
+
+val disable_target_cache : t -> bool
+(** [disable_target_cache t] returns whether target caching is disabled. *)
+
+val workspace_folders : t -> Fpath.t list
+(** [workspace_folders t] returns the list of workspace folders. *)
+
 val update_workspace_folders :
   ?added:Fpath.t list -> ?removed:Fpath.t list -> t -> t
 (** [update_workspace_folders ?added ?removed t] updates the workspace folders in the session.

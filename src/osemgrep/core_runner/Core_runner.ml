@@ -52,6 +52,7 @@ type conf = {
   taint_intrafile : bool;
   (* Engine configuration for various features *)
   engine_config : Engine_config.t;
+  sane_stderr : bool;
 }
 [@@deriving show]
 
@@ -131,6 +132,7 @@ let default_conf : conf =
     nosem = true;
     strict = false;
     engine_config = Engine_config.default;
+    sane_stderr = false;
   }
 
 (*****************************************************************************)
@@ -162,17 +164,18 @@ let (hook_pro_git_remote_scan_setup : (func -> func) option ref) = ref None
 (*************************************************************************)
 (* Metrics and reporting *)
 (*************************************************************************)
-let report_status ~respect_gitignore
+let report_status ~respect_gitignore ~sane_stderr
     (lang_jobs : Lang_job.t list) (rules : Rule.t list) (targets : Fpath.t list)
     =
-  Logs.app (fun m ->
-      m "%a"
-        (fun ppf () ->
-          (* TODO: validate if target is actually within a git repo and
-             perhaps set respect_git_ignore to false otherwise *)
-          Status_report.pp_status ~num_rules:(List.length rules)
-            ~num_targets:(List.length targets) ~respect_gitignore lang_jobs ppf)
-        ())
+  if not sane_stderr then
+    Logs.app (fun m ->
+        m "%a"
+          (fun ppf () ->
+            (* TODO: validate if target is actually within a git repo and
+               perhaps set respect_git_ignore to false otherwise *)
+            Status_report.pp_status ~num_rules:(List.length rules)
+              ~num_targets:(List.length targets) ~respect_gitignore lang_jobs ppf)
+          ())
 
 (*************************************************************************)
 (* Extract mode *)
@@ -377,6 +380,7 @@ let core_scan_config_of_conf (conf : conf) : Core_scan_config.t =
    engine_config;
    (* TODO *)
    dataflow_traces = _;
+   sane_stderr = _;
   } ->
       (* We do our own output in osemgrep, no need for Core_scan.scan() output *)
       let output_format = Core_scan_config.NoOutput in
@@ -473,8 +477,8 @@ let mk_core_run_for_osemgrep (core_scan_func : Core_scan.func) : func =
     *)
     let lang_jobs = split_jobs_by_language targeting_conf valid_rules targets in
     report_status
-      ~respect_gitignore:targeting_conf.respect_gitignore lang_jobs valid_rules
-      targets;
+      ~respect_gitignore:targeting_conf.respect_gitignore
+      ~sane_stderr:conf.sane_stderr lang_jobs valid_rules targets;
     let code_targets, applicable_rules =
       targets_and_rules_of_lang_jobs lang_jobs
     in

@@ -67,6 +67,7 @@ let log_timing msgf = if timing_enabled () then Logs.app msgf
 let run_semgrep ?(targets : Fpath.t list option) ?rules ?git_ref
     (session : Session.t) =
   let rules = Option.value ~default:session.cached_session.rules rules in
+  let sane_stderr = Session.sane_stderr session in
   match (rules, targets) with
   (* This can happen if rules aren't loaded yet. It seems to alarm users if
      they see it even though it's not problematic. TODO have a better way of
@@ -98,23 +99,23 @@ let run_semgrep ?(targets : Fpath.t list option) ?rules ?git_ref
         let runner_conf = Session.runner_conf session in
         (* This is currently just ripped from Scan_subcommand. *)
         let core_run_func =
-          let pro_intrafile =
-            session.user_settings.pro_intrafile
-          in
-            if pro_intrafile then
-              Logs.warn (fun m ->
-                  m
-                    "Pro intrafile is enabled, but the pro engine is not \
-                      available, as the user is not logged in, or there is no \
-                      pro binary available. Running with the OSS engine \
-                      instead.");
-            Core_runner.mk_core_run_for_osemgrep (Core_scan.scan session.caps)
+        let pro_intrafile =
+          session.user_settings.pro_intrafile
         in
-        Logs.debug (fun m ->
-            m "Running Semgrep with %d rules" (List.length rules));
-        let res_or_exn =
-          (fun () ->
-            core_run_func.run runner_conf
+        if pro_intrafile && not sane_stderr then
+          Logs.warn (fun m ->
+              m
+                "Pro intrafile is enabled, but the pro engine is not \
+                 available, as the user is not logged in, or there is no \
+                 pro binary available. Running with the OSS engine \
+                 instead.");
+        Core_runner.mk_core_run_for_osemgrep (Core_scan.scan session.caps)
+      in
+      Logs.debug (fun m ->
+          m "Running Semgrep with %d rules" (List.length rules));
+      let res_or_exn =
+        (fun () ->
+          core_run_func.run runner_conf
               (* TODO: when running with LSP, could the config of matching be needed? *)
               Find_targets.default_conf Match_patterns.default_matching_conf
               (rules, []) targets)
@@ -147,11 +148,12 @@ let run_semgrep ?(targets : Fpath.t list option) ?rules ?git_ref
         |> List_.filter_map (fun (e : Out.cli_error) -> e.message)
         |> String.concat "\n"
       in
-      Logs.app (fun m -> m "Semgrep errors: %s" errors);
-      Logs.app (fun m ->
-          m "Semgrep skipped %d rules" (List.length cli_output.skipped_rules));
-      Logs.app (fun m -> m "Scanned %d files" (List.length scanned));
-      Logs.app (fun m -> m "Found %d matches" (List.length matches));
+      if errors <> "" then Logs.app (fun m -> m "Semgrep errors: %s" errors);
+      if not sane_stderr then (
+        Logs.app (fun m ->
+            m "Semgrep skipped %d rules" (List.length cli_output.skipped_rules));
+        Logs.app (fun m -> m "Scanned %d files" (List.length scanned));
+        Logs.app (fun m -> m "Found %d matches" (List.length matches)));
       let timings = Profiler.dump profiler in
       log_timing (fun m ->
           m "lsp_timing run_semgrep targets=%d matches=%d"
@@ -256,12 +258,13 @@ let scan_open_documents (session : Session.t) =
 
 (** Scan a single file *)
 let scan_file session uri =
-  Logs.app (fun m -> m "Scanning single file");
+  if not (Session.sane_stderr session) then
+    Logs.app (fun m -> m "Scanning single file");
   let file = uri |> Uri.to_path |> Fpath.v in
   (* Capture version immediately to avoid race conditions *)
   let document_version = Session.document_version session file in
   let scan_on_miss = Session.scan_on_miss session in
-  let disable_target_cache = session.user_settings.disable_target_cache in
+  let disable_target_cache = Session.disable_target_cache session in
   let get_diagnostics () =
     let%lwt results =
       let t0 = Unix.gettimeofday () in
@@ -271,7 +274,7 @@ let scan_file session uri =
           let in_workspace =
             List.exists
               (fun folder -> Fpath.is_prefix folder file)
-              session.workspace_folders
+              (Session.workspace_folders session)
           in
           if in_workspace then targets else []
         else
@@ -308,7 +311,8 @@ let scan_file session uri =
       (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
          ~get_version:(fun _ -> document_version) results files)
   in
-  Logs.app (fun m -> m "Scanned single file");
+  if not (Session.sane_stderr session) then
+    Logs.app (fun m -> m "Scanned single file");
   Reply.Later
     (fun send ->
       let%lwt diagnostics = get_diagnostics () in

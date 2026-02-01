@@ -49,6 +49,9 @@ let initialize_server server
     let disable_target_cache =
       initializationOptions |> member "disableTargetCache" |> to_bool_option
     in
+    let sane_stderr =
+      initializationOptions |> member "saneStderr" |> to_bool_option
+    in
     let do_hover =
       initializationOptions |> member "doHover" |> to_bool_option
       |> Option.value ~default:false
@@ -76,7 +79,20 @@ let initialize_server server
       | Some v -> v
       | None -> res.disable_target_cache
     in
-    { res with do_hover; pro_intrafile; scan_on_miss; skip_taint; disable_target_cache }
+    let sane_stderr =
+      match sane_stderr with
+      | Some v -> v
+      | None -> res.sane_stderr
+    in
+    {
+      res with
+      do_hover;
+      pro_intrafile;
+      scan_on_miss;
+      skip_taint;
+      disable_target_cache;
+      sane_stderr;
+    }
   in
   (* Semgrep scanning roots *)
   let workspace_folders =

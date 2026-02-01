@@ -28,6 +28,7 @@ type conf = {
   taint_intrafile : bool;
   (* Engine configuration for various features *)
   engine_config : Engine_config.t;
+  sane_stderr : bool;
 }
 [@@deriving show]
 

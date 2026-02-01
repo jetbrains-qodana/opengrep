@@ -1504,6 +1504,7 @@ let cmdline_term caps ~allow_empty_config : conf Term.t =
         matching_explanations;
         taint_intrafile;
         engine_config;
+        sane_stderr = false;
       }
     in
     let include_ =

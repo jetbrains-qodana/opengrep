@@ -425,3 +425,9 @@ let record_results session results files =
   ()
 
 let scan_on_miss session = session.user_settings.scan_on_miss
+
+let sane_stderr session = session.user_settings.sane_stderr
+
+let disable_target_cache session = session.user_settings.disable_target_cache
+
+let workspace_folders session = session.workspace_folders

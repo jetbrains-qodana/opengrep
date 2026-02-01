@@ -15,6 +15,7 @@ type t = {
   timeout_threshold : int;
   only_git_dirty : bool;
   disable_target_cache : bool;
+  sane_stderr : bool;
   ci : bool;
   do_hover : bool;
   pro_intrafile : bool;

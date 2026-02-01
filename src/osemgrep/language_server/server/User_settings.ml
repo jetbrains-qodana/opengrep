@@ -48,6 +48,7 @@ type t = {
   timeout_threshold : int; [@key "timeoutThreshold"] [@default 3]
   only_git_dirty : bool; [@key "onlyGitDirty"] [@default true]
   disable_target_cache : bool; [@key "disableTargetCache"] [@default false]
+  sane_stderr : bool; [@key "saneStderr"] [@default false]
   ci : bool; [@default true]
   do_hover : bool; [@default false]
   pro_intrafile : bool; [@default false]
@@ -97,4 +98,5 @@ let core_runner_conf_of_t settings : Core_runner.conf =
       inline_metavariables = false;
       taint_intrafile = false;
       engine_config = { Engine_config.default with skip_taint = settings.skip_taint };
+      sane_stderr = settings.sane_stderr;
     }
