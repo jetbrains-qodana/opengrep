@@ -82,6 +82,19 @@ type t = {
 (* Helpers *)
 (*****************************************************************************)
 
+let timing_enabled () =
+  match Sys.getenv_opt "OPENGREP_LSP_TIMING" with
+  | Some v -> (
+      match String.lowercase_ascii v with
+      | "1"
+      | "true"
+      | "yes" ->
+          true
+      | _ -> false)
+  | None -> false
+
+let log_timing msgf = if timing_enabled () then Logs.app msgf
+
 let create caps capabilities =
   let cached_session =
     {
@@ -132,51 +145,82 @@ let get_targets session (root : Fpath.t) =
 (*****************************************************************************)
 
 let cache_workspace_targets session =
-  let folders = session.workspace_folders in
-  let targets = List_.map (fun f -> (f, get_targets session f)) folders in
-  List.iter
-    (fun (folder, targets) ->
-      Hashtbl.replace session.cached_workspace_targets folder targets)
-    targets
+  if session.user_settings.disable_target_cache then (
+    log_timing (fun m -> m "lsp_timing cache_workspace_targets skipped");
+    Hashtbl.reset session.cached_workspace_targets)
+  else (
+    let folders = session.workspace_folders in
+    let t0 = Unix.gettimeofday () in
+    let targets =
+      List_.map
+        (fun f ->
+          let folder_t0 = Unix.gettimeofday () in
+          let res = get_targets session f in
+          let dt = Unix.gettimeofday () -. folder_t0 in
+          log_timing (fun m ->
+              m
+                "lsp_timing cache_workspace_targets folder=%a targets=%d dt=%.3fs"
+                Fpath.pp f (List.length res) dt);
+          (f, res))
+        folders
+    in
+    List.iter
+      (fun (folder, targets) ->
+        Hashtbl.replace session.cached_workspace_targets folder targets)
+      targets;
+    let total_dt = Unix.gettimeofday () -. t0 in
+    log_timing (fun m ->
+        m "lsp_timing cache_workspace_targets total_folders=%d dt=%.3fs"
+          (List.length folders) total_dt))
 
 (* This is dynamic so if the targets file is updated we don't have to restart
  *)
 let targets session =
-  (* These are "dirty paths" because they may not necessarily be files. They may also be folders.
-   *)
-  let dirty_paths_by_workspace =
-    if session.user_settings.only_git_dirty then
-      List_.map (fun f -> (f, dirty_paths_of_folder f)) session.workspace_folders
-    else List_.map (fun f -> (f, None)) session.workspace_folders
-  in
-  let member_folder_dirty_files file folder =
-    let dirty_paths_opt = List.assoc folder dirty_paths_by_workspace in
-    match dirty_paths_opt with
-    | None -> true
-    | Some dirty_paths ->
-        List.exists
-          (fun dirty_path ->
-            if Fpath.is_dir_path dirty_path then Fpath.is_prefix dirty_path file
-            else file = dirty_path)
-          dirty_paths
-  in
-  let member_workspace_folder file (folder : Fpath.t) =
-    Fpath.is_prefix folder file
-    && ((not session.user_settings.only_git_dirty)
-       || member_folder_dirty_files file folder)
-  in
-  let member_workspaces t =
-    List.exists (fun f -> member_workspace_folder t f) session.workspace_folders
-  in
-  let workspace_targets f =
-    Hashtbl.find_opt session.cached_workspace_targets f
-    |> Option.value ~default:[]
-  in
-  let targets =
-    session.workspace_folders |> List.concat_map workspace_targets
-  in
-  (* Filter targets by if only_git_dirty, if they are a dirty file *)
-  targets |> List.filter member_workspaces
+  if session.user_settings.disable_target_cache then (
+    log_timing (fun m -> m "lsp_timing session_targets skipped");
+    [])
+  else (
+    let t0 = Unix.gettimeofday () in
+    (* These are "dirty paths" because they may not necessarily be files. They may also be folders.
+     *)
+    let dirty_paths_by_workspace =
+      if session.user_settings.only_git_dirty then
+        List_.map (fun f -> (f, dirty_paths_of_folder f)) session.workspace_folders
+      else List_.map (fun f -> (f, None)) session.workspace_folders
+    in
+    let member_folder_dirty_files file folder =
+      let dirty_paths_opt = List.assoc folder dirty_paths_by_workspace in
+      match dirty_paths_opt with
+      | None -> true
+      | Some dirty_paths ->
+          List.exists
+            (fun dirty_path ->
+              if Fpath.is_dir_path dirty_path then Fpath.is_prefix dirty_path file
+              else file = dirty_path)
+            dirty_paths
+    in
+    let member_workspace_folder file (folder : Fpath.t) =
+      Fpath.is_prefix folder file
+      && ((not session.user_settings.only_git_dirty)
+         || member_folder_dirty_files file folder)
+    in
+    let member_workspaces t =
+      List.exists (fun f -> member_workspace_folder t f) session.workspace_folders
+    in
+    let workspace_targets f =
+      Hashtbl.find_opt session.cached_workspace_targets f
+      |> Option.value ~default:[]
+    in
+    let targets =
+      session.workspace_folders |> List.concat_map workspace_targets
+    in
+    (* Filter targets by if only_git_dirty, if they are a dirty file *)
+    let filtered = targets |> List.filter member_workspaces in
+    let dt = Unix.gettimeofday () -. t0 in
+    log_timing (fun m ->
+        m "lsp_timing session_targets total=%d dt=%.3fs"
+          (List.length filtered) dt);
+    filtered)
 
 let fetch_rules session =
   let%lwt ci_rules = Lwt.return_none

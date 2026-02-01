@@ -41,6 +41,19 @@ let parse_and_resolve_name (lang : Lang.t) (fpath : Fpath.t) :
 (** [wrap_with_detach f] runs f in a separate, preemptive thread, in order to
     not block the Lwt event loop *)
 let wrap_with_detach f = Lwt_platform.detach f ()
+
+let timing_enabled () =
+  match Sys.getenv_opt "OPENGREP_LSP_TIMING" with
+  | Some v -> (
+      match String.lowercase_ascii v with
+      | "1"
+      | "true"
+      | "yes" ->
+          true
+      | _ -> false)
+  | None -> false
+
+let log_timing msgf = if timing_enabled () then Logs.app msgf
 (* Relevant here means any matches we actually care about showing the user.
     This means like some matches, such as those that appear in committed
     files/lines, will be filtered out*)
@@ -139,6 +152,15 @@ let run_semgrep ?(targets : Fpath.t list option) ?rules ?git_ref
           m "Semgrep skipped %d rules" (List.length cli_output.skipped_rules));
       Logs.app (fun m -> m "Scanned %d files" (List.length scanned));
       Logs.app (fun m -> m "Found %d matches" (List.length matches));
+      let timings = Profiler.dump profiler in
+      log_timing (fun m ->
+          m "lsp_timing run_semgrep targets=%d matches=%d"
+            (List.length (Option.value ~default:[] targets))
+            (List.length matches));
+      List.iter
+        (fun (name, dt) ->
+          log_timing (fun m -> m "lsp_timing run_semgrep.%s dt=%.3fs" name dt))
+        timings;
       (matches, scanned)
 
 let run_semgrep_detached ?targets ?rules ?git_ref (session : Session.t) =
@@ -239,11 +261,20 @@ let scan_file session uri =
   (* Capture version immediately to avoid race conditions *)
   let document_version = Session.document_version session file in
   let scan_on_miss = Session.scan_on_miss session in
+  let disable_target_cache = session.user_settings.disable_target_cache in
   let get_diagnostics () =
     let%lwt results =
-      let%lwt results, _ =
-        let targets =
-          let targets = [ file ] in
+      let t0 = Unix.gettimeofday () in
+      let targets =
+        let targets = [ file ] in
+        if disable_target_cache then
+          let in_workspace =
+            List.exists
+              (fun folder -> Fpath.is_prefix folder file)
+              session.workspace_folders
+          in
+          if in_workspace then targets else []
+        else
           let session_targets = Session.targets session in
           (* If the file opened isn't a target, try updating targets just in case *)
           (* This feels fine since if it is an actual target, we need to do this, and if not *)
@@ -262,9 +293,12 @@ let scan_file session uri =
                 let session_targets_after = Session.targets session in
                 if List.mem file session_targets_after then targets else [])
           else targets
-        in
-        run_semgrep_detached ~targets session
       in
+      let%lwt results, scanned = run_semgrep_detached ~targets session in
+      let dt = Unix.gettimeofday () -. t0 in
+      log_timing (fun m ->
+          m "lsp_timing scan_file file=%a targets=%d scanned=%d dt=%.3fs"
+            Fpath.pp file (List.length targets) (List.length scanned) dt);
       Lwt.return
         (List_.map (fun (m : Out.cli_match) -> { m with path = file }) results)
     in

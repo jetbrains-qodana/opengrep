@@ -14,6 +14,7 @@ type t = {
   dynamic_timeout_unit_kb : int;
   timeout_threshold : int;
   only_git_dirty : bool;
+  disable_target_cache : bool;
   ci : bool;
   do_hover : bool;
   pro_intrafile : bool;

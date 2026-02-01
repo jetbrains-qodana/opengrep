@@ -46,6 +46,9 @@ let initialize_server server
     let skip_taint =
       initializationOptions |> member "skipTaint" |> to_bool_option
     in
+    let disable_target_cache =
+      initializationOptions |> member "disableTargetCache" |> to_bool_option
+    in
     let do_hover =
       initializationOptions |> member "doHover" |> to_bool_option
       |> Option.value ~default:false
@@ -68,7 +71,12 @@ let initialize_server server
       | Some v -> Some v
       | None -> res.skip_taint
     in
-    { res with do_hover; pro_intrafile; scan_on_miss; skip_taint }
+    let disable_target_cache =
+      match disable_target_cache with
+      | Some v -> v
+      | None -> res.disable_target_cache
+    in
+    { res with do_hover; pro_intrafile; scan_on_miss; skip_taint; disable_target_cache }
   in
   (* Semgrep scanning roots *)
   let workspace_folders =
