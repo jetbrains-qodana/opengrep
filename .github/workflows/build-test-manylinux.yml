@@ -26,51 +26,174 @@ on:
 jobs:
 
   build-wheels:
-    container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || 'quay.io/pypa/manylinux_2_28_aarch64' }} 
+    container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || '' }}
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        run: |
+          # Check if Docker is already installed
+          if command -v docker &> /dev/null; then
+            echo "Docker is already installed: $(docker --version)"
+            # Ensure docker service is running and socket is accessible
+            sudo systemctl start docker || true
+            sudo chmod 666 /var/run/docker.sock || true
+            exit 0
+          fi
+
+          echo "Docker not found. Installing Docker..."
+
+          sudo apt-get remove docker docker-engine docker.io containerd runc || true
+
+          # Repository setup
+          sudo apt-get update
+          sudo apt-get install -y \
+              apt-transport-https \
+              ca-certificates \
+              curl \
+              gnupg
+
+          # GPG Key
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+          # Setup stable repository
+          echo \
+            "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+          # Install Docker
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+          # Add usergroup
+          sudo groupadd docker || true
+          sudo usermod -aG docker $USER
+
+          # Start and enable Docker service
+          sudo systemctl start docker
+          sudo systemctl enable docker
+
+          # Make docker socket accessible (group membership takes effect on next login, but we need it now)
+          sudo chmod 666 /var/run/docker.sock
+
       - name: Make checkout speedy
         run: git config --global fetch.parallel 50
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           submodules: true
-      - run: |
+      - name: Setup and build (x86_64 in container)
+        if: inputs.arch == 'x86_64'
+        run: |
           yum update -y --exclude=xkeyboard-config --exclude=libxkbcommon
           yum install -y zip
-          # Use pre-installed Python from manylinux container (AlmaLinux aarch64 mirrors are broken)
           echo "/opt/python/cp39-cp39/bin" >> $GITHUB_PATH
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: opengrep-core-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}
-      - run: |
+      - name: Build wheels (x86_64 in container)
+        if: inputs.arch == 'x86_64'
+        run: |
           tar xf artifacts.tgz
           cp artifacts/opengrep-core cli/src/semgrep/bin
           ./scripts/build-wheels.sh
+      - name: Build wheels (ARM64 with docker)
+        if: inputs.arch != 'x86_64'
+        run: |
+          docker run --rm \
+            --volume ${{ github.workspace }}:/workspace \
+            --workdir /workspace \
+            quay.io/pypa/manylinux_2_28_aarch64 \
+            /bin/bash -c "
+              yum update -y --exclude=xkeyboard-config --exclude=libxkbcommon &&
+              yum install -y zip &&
+              export PATH=/opt/python/cp39-cp39/bin:\$PATH &&
+              tar xf artifacts.tgz &&
+              cp artifacts/opengrep-core cli/src/semgrep/bin &&
+              ./scripts/build-wheels.sh
+            "
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
         with:
           name: manylinux-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}-wheel
           path: cli/dist.zip
 
   test-wheels:
-    container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || 'quay.io/pypa/manylinux_2_28_aarch64' }} 
+    container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || '' }}
     needs:
       - build-wheels
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        run: |
+          # Check if Docker is already installed
+          if command -v docker &> /dev/null; then
+            echo "Docker is already installed: $(docker --version)"
+            # Ensure docker service is running and socket is accessible
+            sudo systemctl start docker || true
+            sudo chmod 666 /var/run/docker.sock || true
+            exit 0
+          fi
+
+          echo "Docker not found. Installing Docker..."
+
+          sudo apt-get remove docker docker-engine docker.io containerd runc || true
+
+          # Repository setup
+          sudo apt-get update
+          sudo apt-get install -y \
+              apt-transport-https \
+              ca-certificates \
+              curl \
+              gnupg
+
+          # GPG Key
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+          # Setup stable repository
+          echo \
+            "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+          # Install Docker
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+          # Add usergroup
+          sudo groupadd docker || true
+          sudo usermod -aG docker $USER
+
+          # Start and enable Docker service
+          sudo systemctl start docker
+          sudo systemctl enable docker
+
+          # Make docker socket accessible (group membership takes effect on next login, but we need it now)
+          sudo chmod 666 /var/run/docker.sock
+
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: manylinux-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}-wheel
-      - run: unzip dist.zip
-      - name: install package
-        run: /opt/python/cp39-cp39/bin/pip install dist/*.whl
-      - name: test package
+      - name: Test (x86_64 in container)
+        if: inputs.arch == 'x86_64'
         run: |
+          unzip dist.zip
+          /opt/python/cp39-cp39/bin/pip install dist/*.whl
           export PATH=/opt/python/cp39-cp39/bin:$PATH
           opengrep --version
-      - name: e2e opengrep-core test
-        run: |
-          export PATH=/opt/python/cp39-cp39/bin:$PATH
           echo '1 == 1' | opengrep -l python -e '$X == $X' -
+      - name: Test (ARM64 with docker)
+        if: inputs.arch != 'x86_64'
+        run: |
+          docker run --rm \
+            --volume ${{ github.workspace }}:/workspace \
+            --workdir /workspace \
+            quay.io/pypa/manylinux_2_28_aarch64 \
+            /bin/bash -c "
+              unzip dist.zip &&
+              /opt/python/cp39-cp39/bin/pip install dist/*.whl &&
+              export PATH=/opt/python/cp39-cp39/bin:\$PATH &&
+              opengrep --version &&
+              echo '1 == 1' | opengrep -l python -e '\$X == \$X' -
+            "
 
   test-wheels-venv:
     if: inputs.arch == 'x86_64' 
