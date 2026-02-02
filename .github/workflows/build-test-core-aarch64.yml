@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         ocaml_version: ["5.3.0"]
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm-gh-managed
 
     steps:
       - name: Make checkout speedy
@@ -63,7 +63,7 @@ jobs:
   build-musllinux-aarch64:
     needs:
       - build-core
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm-gh-managed
     steps:
       - name: Make checkout speedy
         run: git config --global fetch.parallel 50
