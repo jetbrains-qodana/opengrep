@@ -120,6 +120,13 @@ jobs:
     needs: build-self-contained-musllinux-binary
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        if: inputs.arch != 'x86_64'
+        with:
+          sparse-checkout: |
+            .github/actions/install-docker-arm64
+          sparse-checkout-cone-mode: false
+
       - name: Install Docker (ARM64 only)
         if: inputs.arch != 'x86_64'
         uses: ./.github/actions/install-docker-arm64

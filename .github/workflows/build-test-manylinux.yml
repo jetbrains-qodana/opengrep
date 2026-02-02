@@ -29,15 +29,15 @@ jobs:
     container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || '' }}
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
-      - name: Install Docker (ARM64 only)
-        if: inputs.arch != 'x86_64'
-        uses: ./.github/actions/install-docker-arm64
-
       - name: Make checkout speedy
         run: git config --global fetch.parallel 50
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           submodules: true
+
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        uses: ./.github/actions/install-docker-arm64
       - name: Setup and build (x86_64 in container)
         if: inputs.arch == 'x86_64'
         run: |
@@ -79,6 +79,13 @@ jobs:
       - build-wheels
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        if: inputs.arch != 'x86_64'
+        with:
+          sparse-checkout: |
+            .github/actions/install-docker-arm64
+          sparse-checkout-cone-mode: false
+
       - name: Install Docker (ARM64 only)
         if: inputs.arch != 'x86_64'
         uses: ./.github/actions/install-docker-arm64

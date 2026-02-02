@@ -17,6 +17,10 @@ jobs:
     container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || '' }}
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Install Docker (ARM64 only)
         if: inputs.arch != 'x86_64'
         uses: ./.github/actions/install-docker-arm64
@@ -30,10 +34,6 @@ jobs:
           echo "PATH=/opt/python/cp313-cp313/bin:$PATH" >> $GITHUB_ENV
           # Extract static Python libraries for Nuitka
           cd /opt/_internal && tar xf static-libs-for-embedding-only.tar.xz
-
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: Set Nuitka cache dir
         run: echo "NUITKA_CACHE_DIR=${{ github.workspace }}/_nuitka" >> $GITHUB_ENV
