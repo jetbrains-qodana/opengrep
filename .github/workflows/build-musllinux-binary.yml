@@ -48,8 +48,8 @@ jobs:
         with:
           name: musllinux-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}-wheel
 
-      - name: Install Docker on ARM runner
-        if: runner.arch == 'ARM64'
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
         run: |
           # Check if Docker is already installed
           if command -v docker &> /dev/null; then
@@ -159,22 +159,8 @@ jobs:
     needs: build-self-contained-musllinux-binary
     runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
-      - name: Set ALPINE_CONTAINER based on inputs.arch
-        env:
-          ARCH: ${{ inputs.arch }}
-        run: |
-          if [ "$ARCH" = "x86_64" ]; then
-            echo "ALPINE_CONTAINER=quay.io/pypa/musllinux_1_2_x86_64" >> $GITHUB_ENV
-          else
-            echo "ALPINE_CONTAINER=quay.io/pypa/musllinux_1_2_aarch64" >> $GITHUB_ENV
-          fi
-
-      - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
-        with:
-          name: opengrep_musllinux_binary_${{ inputs.arch }}
-
-      - name: Install Docker on ARM runner
-        if: runner.arch == 'ARM64'
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
         run: |
           # Check if Docker is already installed
           if command -v docker &> /dev/null; then
@@ -219,6 +205,20 @@ jobs:
 
           # Make docker socket accessible (group membership takes effect on next login, but we need it now)
           sudo chmod 666 /var/run/docker.sock
+
+      - name: Set ALPINE_CONTAINER based on inputs.arch
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: |
+          if [ "$ARCH" = "x86_64" ]; then
+            echo "ALPINE_CONTAINER=quay.io/pypa/musllinux_1_2_x86_64" >> $GITHUB_ENV
+          else
+            echo "ALPINE_CONTAINER=quay.io/pypa/musllinux_1_2_aarch64" >> $GITHUB_ENV
+          fi
+
+      - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
+        with:
+          name: opengrep_musllinux_binary_${{ inputs.arch }}
 
       - name: Test binary inside container
         run: |
