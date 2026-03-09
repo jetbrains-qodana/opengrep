@@ -60,6 +60,13 @@ let initialize_server server
       scan_options |> member "pro_intrafile" |> to_bool_option
       |> Option.value ~default:false
     in
+    let handle_ast =
+      match scan_options |> member "handleAST" with
+      | `String value -> String.lowercase_ascii value
+      | `Bool true -> "json"
+      | `Bool false -> "off"
+      | _ -> "off"
+    in
     let res =
       scan_options |> User_settings.t_of_yojson
       |> Result.value ~default:server.session.user_settings
@@ -88,6 +95,7 @@ let initialize_server server
       res with
       do_hover;
       pro_intrafile;
+      handle_ast;
       scan_on_miss;
       skip_taint;
       disable_target_cache;

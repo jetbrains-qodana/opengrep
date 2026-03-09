@@ -1,9 +1,10 @@
 (executables
  (names Main)
  (flags
-  (:standard
-   (:include flags.sexp))
   (:standard -open TCB -open Commons_TCB))
+ (ocamlopt_flags
+  (:standard
+   (:include flags.sexp)))
  (libraries
   TCB
   semgrep.core_cli

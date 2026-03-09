@@ -446,8 +446,7 @@ let taint_config_of_rule ~per_file_formula_cache
     ({ mode = `Taint spec; _ } as rule : R.taint_rule) =
   match spec_matches_of_taint_rule ~per_file_formula_cache xconf !!file
       ast_and_errors rule with
-  | { sinks = []; _ }, _
-  | { sources = []; _ }, _ -> None
+  | { sinks = []; sources = []; _ }, _ -> None
   | spec_matches, expls ->
       let xconf = Match_env.adjust_xconfig_with_rule_options xconf rule.options in
       let options = xconf.config in

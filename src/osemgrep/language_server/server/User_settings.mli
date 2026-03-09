@@ -19,6 +19,7 @@ type t = {
   ci : bool;
   do_hover : bool;
   pro_intrafile : bool;
+  handle_ast : string;
   skip_taint : bool option;
 }
 

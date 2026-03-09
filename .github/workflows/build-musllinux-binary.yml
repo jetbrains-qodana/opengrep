@@ -12,7 +12,7 @@ on:
 jobs:
 
   build-self-contained-musllinux-binary:
-    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-24.04-gh-managed' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
@@ -47,6 +47,10 @@ jobs:
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: musllinux-${{ inputs.arch == 'x86_64' && 'x86' || 'aarch64' }}-wheel
+
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        uses: ./.github/actions/install-docker-arm64
 
       # - name: Install GitHub CLI
       #   run: |
@@ -100,6 +104,10 @@ jobs:
               chown -R $(id -u):$(id -g) /workspace/cli
             "
 
+      - name: Install zip (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        run: sudo apt-get update && sudo apt-get install -y zip
+
       - name: Zip artifact
         run: zip -j opengrep.zip cli/opengrep
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # ratchet:actions/upload-artifact@v4
@@ -110,8 +118,19 @@ jobs:
 
   test-musllinux-binary:
     needs: build-self-contained-musllinux-binary
-    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-24.04-gh-managed' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+        if: inputs.arch != 'x86_64'
+        with:
+          sparse-checkout: |
+            .github/actions/install-docker-arm64
+          sparse-checkout-cone-mode: false
+
+      - name: Install Docker (ARM64 only)
+        if: inputs.arch != 'x86_64'
+        uses: ./.github/actions/install-docker-arm64
+
       - name: Set ALPINE_CONTAINER based on inputs.arch
         env:
           ARCH: ${{ inputs.arch }}

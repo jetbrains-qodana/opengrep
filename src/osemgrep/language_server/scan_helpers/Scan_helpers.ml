@@ -316,7 +316,38 @@ let scan_file session uri =
   Reply.Later
     (fun send ->
       let%lwt diagnostics = get_diagnostics () in
-      Lwt_list.iter_p send (batch_notify diagnostics))
+      (* Compute IR JSON for this file and send it to the client via a custom notification. *)
+      let%lwt () =
+        let handle_ast = String.lowercase_ascii session.user_settings.handle_ast in
+        let format =
+          match handle_ast with
+          | "json" -> Some `Json
+          | "binary" -> Some `Binary
+          | "off" | "" -> None
+          | _ ->
+              Logs.warn (fun m -> m "Unknown handleAST mode: %s" handle_ast);
+              None
+        in
+        match format with
+        | None -> Lwt.return_unit
+        | Some format ->
+            let infile_s = Fpath.to_string file in
+            let rules = session.cached_session.rules in
+            let num_domains = Domainslib_.get_cpu_count () in
+            let ir_json =
+              Taint_processor.parse_and_serialize_file (session.caps :> < Cap.fork >) ~num_domains ~format file infile_s rules
+            in
+            let params_assoc = [("uri", `String (Uri.to_string uri)); ("value", `String ir_json)] in
+            let params_assoc = match document_version with
+              | Some v -> params_assoc @ [("version", `Int v)]
+              | None -> params_assoc
+            in
+            send (notify_custom
+                    ?params:(Some (Jsonrpc.Structured.t_of_yojson (`Assoc params_assoc)))
+                    "semgrep/handleAST" |> Result.get_ok)
+      in
+      Lwt_list.iter_p send (batch_notify diagnostics)
+      )
 
 let refresh_rules session =
   Reply.later (fun send ->

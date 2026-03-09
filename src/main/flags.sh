@@ -130,7 +130,7 @@ else
         CCOPT=()
         # TODO: ideally much of this could be generated from dune/opam.
         CCLIB=(
-            "-lANSITerminal_stubs"
+            "-lansiterminal_stubs"
             "-lalcotest_stubs"
             "-lbase_internalhash_types_stubs"
             "-lbase_stubs"

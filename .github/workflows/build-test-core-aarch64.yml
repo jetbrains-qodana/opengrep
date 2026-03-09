@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         ocaml_version: ["5.3.0"]
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm-gh-managed
 
     steps:
       - name: Make checkout speedy
@@ -40,6 +40,9 @@ jobs:
         run: |
           echo "SHOULD_INIT_OPAM=false" >> $GITHUB_ENV
 
+      - name: Install Docker on ARM runner
+        uses: ./.github/actions/install-docker-arm64
+
       - name: Run build inside container
         run: |
           docker run --rm \
@@ -63,7 +66,7 @@ jobs:
   build-musllinux-aarch64:
     needs:
       - build-core
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm-gh-managed
     steps:
       - name: Make checkout speedy
         run: git config --global fetch.parallel 50
@@ -75,6 +78,9 @@ jobs:
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # v4
         with:
           name: opengrep-core-aarch64
+
+      - name: Install Docker on ARM runner
+        uses: ./.github/actions/install-docker-arm64
 
       - name: Build inside container
         run: |

@@ -250,7 +250,7 @@ let fetch_rules session =
         let config = Rules_config.parse_config_string ~in_docker source in
         (* TODO: registry_caching is not anymore in semgrep-OSS! *)
         Rule_fetching.rules_from_dashdash_config_async
-          ~rewrite_rule_ids:true (* default *)
+          ~rewrite_rule_ids:false (* default *)
           session.caps config)
       rules_source
   in
@@ -274,9 +274,16 @@ let fetch_rules session =
   let rules, invalid_rules =
     Rule_fetching.partition_rules_and_invalid rules_and_origins
   in
+  (* Deduplicate by (rule_id, target_analyzer) to preserve language-specific variants
+     of rules with the same ID. This is necessary because semgrep rules are organized
+     by language, and the same rule ID (e.g., "tainted-sql-string") can have different
+     implementations for different languages (JavaScript, Python, Go, etc.). *)
   let rules =
     List_.deduplicate_gen
-      ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
+      ~get_key:(fun r ->
+        Printf.sprintf "%s:%s"
+          (Rule_ID.to_string (fst r.Rule.id))
+          (Xlang.to_string r.Rule.target_analyzer))
       rules
   in
   let rule_filtering_conf =

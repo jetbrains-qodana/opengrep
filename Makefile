@@ -663,3 +663,41 @@ visual:
 	codemap -screen_size 3 -filter semgrep -efuns_client efuns_client -emacs_client /dev/null .
 visual2:
 	codemap -screen_size 3 -filter semgrep -efuns_client efuns_client -emacs_client /dev/null src
+
+
+# -----------------------------------------------------------------------------
+# Bytecode build (for debugging with ocamldebug)
+# -----------------------------------------------------------------------------
+.PHONY: bytecode build-core-bytecode
+bytecode: build-core-bytecode
+
+build-core-bytecode:
+	@# Ensure the ANSITerminal stubs are available for -custom bytecode link
+	@# If opam is available and ansiterminal is not installed, install it automatically.
+	@if command -v opam >/dev/null 2>&1; then \
+		if ! opam list --installed --short ansiterminal >/dev/null 2>&1; then \
+			echo "[bytecode] Installing missing opam package: ansiterminal (required for custom bytecode runtime)..."; \
+			opam update -y >/dev/null 2>&1 || true; \
+			opam install -y ansiterminal; \
+		fi; \
+	else \
+		echo "[bytecode] Warning: opam not found; if the build fails with 'ANSITerminal_stubs not found', install 'ansiterminal' via opam."; \
+	fi
+	# Build bytecode executable directly from the default build path
+	dune build $(BUILD_DEFAULT)/src/main/Main.bc
+	rm -rf bin
+	mkdir -p bin
+	rm -f bin/opengrep-core.bc bin/opengrep.bc
+	cp $(BUILD_DEFAULT)/src/main/Main.bc bin/opengrep-core.bc
+	cp $(BUILD_DEFAULT)/src/main/Main.bc bin/opengrep.bc
+	@echo "Built bytecode executables:"
+	@echo "  bin/opengrep-core.bc"
+	@echo "  bin/opengrep.bc"
+	@echo "Use ocamldebug with: ocamldebug bin/opengrep-core.bc -- <args>"
+
+.PHONY: build-taint-json
+build-taint-json:
+	dune build $(BUILD_DEFAULT)/src/rml/Taint_json.bc
+	@mkdir -p bin
+	cp $(BUILD_DEFAULT)/src/rml/Taint_json.bc bin/taint-json.bc
+	@echo "Built bin/taint-json.bc"
