@@ -1,0 +1,32 @@
+(library
+ (public_name semgrep.rml)
+ (name semgrep_rml)
+ (wrapped false)
+ (modules Ast_binary_serializer Taint_location Taint_serializer Taint_processor)
+ (libraries
+  semgrep.il
+  ast_generic
+  commons
+  yojson
+  semgrep.tainting
+  semgrep.core_scan
+  parallelism
+ ))
+
+
+(executables
+ (names Taint_json)
+ (modules Taint_json)
+ (flags
+  (:standard -open TCB -open Commons_TCB))
+ (libraries
+  TCB
+  unix
+  semgrep.core_cli
+  semgrep.osemgrep_cli
+  semgrep.rml
+  ; implementations of dune virtual modules
+  lwt_platform.unix)
+ (preprocess
+  (pps ppx_profiling))
+ (modes native byte))

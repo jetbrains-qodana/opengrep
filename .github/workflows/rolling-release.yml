@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-gh-managed
     steps:
       - name: Validate tag input
         run: |
@@ -80,7 +80,7 @@ jobs:
     uses: ./.github/workflows/build-windows-binary-x86.yml
 
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-gh-managed
 
     needs:
       - build-linux-x86 # redundant

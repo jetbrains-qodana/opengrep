@@ -30,7 +30,7 @@ jobs:
       # See: https://github.com/actions/checkout/issues/956.
       # But this suggest to run as root: https://docs.github.com/en/enterprise-server@3.12/actions/sharing-automations/creating-actions/dockerfile-support-for-github-actions#user
       options: --user root
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-gh-managed
     # env:
     #   HOME: /home/ocaml # NOTE: Pointless?
     steps:
@@ -103,7 +103,7 @@ jobs:
     needs:
       - build-core
     container: quay.io/pypa/musllinux_1_2_x86_64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-gh-managed
     steps:
       - name: Make checkout speedy
         run: git config --global fetch.parallel 50

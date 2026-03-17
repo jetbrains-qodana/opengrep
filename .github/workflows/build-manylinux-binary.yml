@@ -15,7 +15,7 @@ jobs:
     # NOTE: The image below has GLIBC 2.28, but there are others for even older version.
     # See: https://github.com/pypa/manylinux
     container: ${{ inputs.arch == 'x86_64' && 'quay.io/pypa/manylinux_2_28_x86_64' || '' }}
-    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-latest' || 'ubuntu-24.04-arm-gh-managed' }}
+    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-24.04-gh-managed' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
@@ -133,7 +133,7 @@ jobs:
 
   test-manylinux-binary:
     needs: build-self-contained-manylinux-binary
-    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-22.04' || 'ubuntu-24.04-arm-gh-managed' }}
+    runs-on: ${{ inputs.arch == 'x86_64' && 'ubuntu-24.04-gh-managed' || 'ubuntu-24.04-arm-gh-managed' }}
     steps:
       - name: Install unzip (ARM64 only)
         if: inputs.arch != 'x86_64'
