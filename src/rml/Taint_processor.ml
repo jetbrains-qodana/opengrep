@@ -335,16 +335,12 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
   let parse_result = Parse_target.just_parse_with_lang lang infile in
   let ast = parse_result.ast in
   let analyzer = Xlang.of_lang lang in
-  let has_parse_issues =
-    parse_result.errors <> []
-    || parse_result.tolerated_errors <> []
-    || parse_result.skipped_tokens <> []
-  in
+  let has_parse_errors = parse_result.errors <> [] in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
   Taint_location.set_current_file_path infile_s;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
-  if has_parse_issues then
+  if has_parse_errors then
     { ast; lang; taint_entries = empty_taint_entries }
   else if file_size_bytes >= skip_taint_large_file_bytes then
     { ast; lang; taint_entries = empty_taint_entries }
