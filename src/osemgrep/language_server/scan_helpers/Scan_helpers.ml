@@ -54,6 +54,15 @@ let timing_enabled () =
   | None -> false
 
 let log_timing msgf = if timing_enabled () then Logs.app msgf
+
+let ast_fallback_payload () =
+  Taint_processor.serialize_empty_ast_with_taint_to_string ()
+
+let skip_taint_ast_mode (session : Session.t) =
+  match session.user_settings.skip_taint with
+  | Some true -> true
+  | _ -> false
+
 (* Relevant here means any matches we actually care about showing the user.
     This means like some matches, such as those that appear in committed
     files/lines, will be filtered out*)
@@ -311,43 +320,124 @@ let scan_file session uri =
       (Diagnostics.diagnostics_of_results ~is_intellij:session.is_intellij
          ~get_version:(fun _ -> document_version) results files)
   in
+  let send_ast send =
+    let document_version_is_current () =
+      Session.document_version session file = document_version
+    in
+    let send_ast_payload value =
+      let params_assoc =
+        [ ("uri", `String (Uri.to_string uri)); ("value", `String value) ]
+      in
+      let params_assoc =
+        match document_version with
+        | Some v -> params_assoc @ [ ("version", `Int v) ]
+        | None -> params_assoc
+      in
+      send
+        (notify_custom
+           ?params:(Some (Jsonrpc.Structured.t_of_yojson (`Assoc params_assoc)))
+           "semgrep/handleAST"
+        |> Result.get_ok)
+    in
+    let handle_ast = String.lowercase_ascii session.user_settings.handle_ast in
+    let format =
+      match handle_ast with
+      | "json" -> Some `Json
+      | "binary" -> Some `Binary
+      | "off" | "" -> None
+      | _ ->
+          Logs.warn (fun m -> m "Unknown handleAST mode: %s" handle_ast);
+          None
+    in
+    match format with
+    | None -> Lwt.return_unit
+    | Some format ->
+        if skip_taint_ast_mode session then
+          if not (document_version_is_current ()) then (
+            log_timing (fun m ->
+                m "lsp_timing scan_file_ast_skipped_stale file=%a" Fpath.pp file);
+            Lwt.return_unit)
+          else
+            Lwt.catch
+              (fun () ->
+                let infile_s = Fpath.to_string file in
+                let rules = session.cached_session.rules in
+                let num_domains = Domainslib_.get_cpu_count () in
+                let t0 = Unix.gettimeofday () in
+                let%lwt ir_json =
+                  wrap_with_detach (fun () ->
+                      Taint_processor.parse_and_serialize_file
+                        (session.caps :> < Cap.fork >) ~num_domains ~format
+                        ~skip_taint_mode:true file infile_s rules)
+                in
+                let dt = Unix.gettimeofday () -. t0 in
+                if not (document_version_is_current ()) then (
+                  log_timing (fun m ->
+                      m
+                        "lsp_timing scan_file_ast_dropped_stale file=%a \
+                         dt=%.3fs payload=%d"
+                        Fpath.pp file dt (String.length ir_json));
+                  Lwt.return_unit)
+                else (
+                  log_timing (fun m ->
+                      m "lsp_timing scan_file_ast file=%a dt=%.3fs payload=%d"
+                        Fpath.pp file dt (String.length ir_json));
+                  send_ast_payload ir_json))
+              (fun exn ->
+                if not (document_version_is_current ()) then (
+                  log_timing (fun m ->
+                      m
+                        "lsp_timing scan_file_ast_exception_dropped_stale \
+                         file=%a"
+                        Fpath.pp file);
+                  Lwt.return_unit)
+                else
+                  let log_error =
+                    match exn with
+                    | Parsing_error.Syntax_error _ ->
+                        fun () ->
+                          Logs.warn (fun m ->
+                              m
+                                "Failed to parse AST for %a: %s; sending empty \
+                                 AST payload"
+                                Fpath.pp file (Printexc.to_string exn))
+                    | _ ->
+                        fun () ->
+                          Logs.err (fun m ->
+                              m
+                                "Failed to compute AST for %a: %s; sending \
+                                 empty AST payload"
+                                Fpath.pp file (Printexc.to_string exn))
+                  in
+                  log_error ();
+                  send_ast_payload (ast_fallback_payload ()))
+        else
+          let infile_s = Fpath.to_string file in
+          let rules = session.cached_session.rules in
+          let num_domains = Domainslib_.get_cpu_count () in
+          let ir_json =
+            Taint_processor.parse_and_serialize_file (session.caps :> < Cap.fork >)
+              ~num_domains ~format file infile_s rules
+          in
+          send_ast_payload ir_json
+  in
   if not (Session.sane_stderr session) then
     Logs.app (fun m -> m "Scanned single file");
   Reply.Later
     (fun send ->
       let%lwt diagnostics = get_diagnostics () in
-      (* Compute IR JSON for this file and send it to the client via a custom notification. *)
-      let%lwt () =
-        let handle_ast = String.lowercase_ascii session.user_settings.handle_ast in
-        let format =
-          match handle_ast with
-          | "json" -> Some `Json
-          | "binary" -> Some `Binary
-          | "off" | "" -> None
-          | _ ->
-              Logs.warn (fun m -> m "Unknown handleAST mode: %s" handle_ast);
-              None
+      if skip_taint_ast_mode session then
+        let%lwt () =
+          log_timing (fun m ->
+              m
+                "lsp_timing scan_file_diagnostics_ready file=%a notifications=%d"
+                Fpath.pp file (List.length diagnostics));
+          Lwt_list.iter_p send (batch_notify diagnostics)
         in
-        match format with
-        | None -> Lwt.return_unit
-        | Some format ->
-            let infile_s = Fpath.to_string file in
-            let rules = session.cached_session.rules in
-            let num_domains = Domainslib_.get_cpu_count () in
-            let ir_json =
-              Taint_processor.parse_and_serialize_file (session.caps :> < Cap.fork >) ~num_domains ~format file infile_s rules
-            in
-            let params_assoc = [("uri", `String (Uri.to_string uri)); ("value", `String ir_json)] in
-            let params_assoc = match document_version with
-              | Some v -> params_assoc @ [("version", `Int v)]
-              | None -> params_assoc
-            in
-            send (notify_custom
-                    ?params:(Some (Jsonrpc.Structured.t_of_yojson (`Assoc params_assoc)))
-                    "semgrep/handleAST" |> Result.get_ok)
-      in
-      Lwt_list.iter_p send (batch_notify diagnostics)
-      )
+        send_ast send
+      else
+        let%lwt () = send_ast send in
+        Lwt_list.iter_p send (batch_notify diagnostics))
 
 let refresh_rules session =
   Reply.later (fun send ->
