@@ -45,6 +45,15 @@ val taint_config_of_rule :
   Rule.taint_rule ->
   (Taint_rule_inst.t * spec_matches * Matching_explanation.t list) option
 
+(* Exposed for AST taint annotation (Taint_processor) *)
+val spec_matches_of_taint_rule :
+  per_file_formula_cache:Formula_cache.t ->
+  Match_env.xconfig ->
+  string ->
+  AST_generic.program * Tok.location list ->
+  Rule.taint_rule ->
+  spec_matches * Matching_explanation.t list
+
 (* Exposed for Pro *)
 
 val range_of_any : AST_generic.any -> Range.t option
