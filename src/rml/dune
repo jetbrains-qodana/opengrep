@@ -11,6 +11,7 @@
   semgrep.tainting
   semgrep.core_scan
   parallelism
+  semgrep.memory_release
  ))
 
 

@@ -226,6 +226,14 @@ let run_core_search xconf rule (file : Fpath.t) =
 let scan_something ?targets session =
   let%lwt results, files = run_semgrep_detached ?targets session in
   Session.record_results session results files;
+  (* Clean up per-file engine caches that would otherwise accumulate
+     indefinitely in the LSP server. These store file contents and
+     line/column converters keyed by file path. *)
+  List.iter
+    (fun f ->
+      Kcas_data.Hashtbl.remove Range.hmemo f;
+      Kcas_data.Hashtbl.remove Xpattern_matcher.hmemo f)
+    files;
   (* LSP expects empty diagnostics to clear problems *)
   let files = Session.scanned_files session in
   Lwt.return
