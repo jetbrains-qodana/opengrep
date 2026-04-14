@@ -22,7 +22,7 @@ CAMLprim value caml_release_c_heap_memory(value unit) {
   return Val_unit;
 }
 
-#elif defined(__linux__)
+#elif defined(__linux__) && defined(__GLIBC__)
 #include <malloc.h>
 
 CAMLprim value caml_release_c_heap_memory(value unit) {
