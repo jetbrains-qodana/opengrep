@@ -198,25 +198,23 @@ let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
 
 let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
     ?(shared_formula_cache = false)
-    ~(infile_s : string)
+    ~(infile : Fpath.t) ~(infile_s : string) ~(lang : Lang.t)
     ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
     Taint_serializer.taint_entries_t =
+  let _ = infile_s in
   if taint_rules = [] then empty_taint_entries
   else
     let process_rules formula_cache (rules_to_run : Rule.taint_rule list) =
       List.filter_map
         (fun (rule : Rule.taint_rule) ->
-          let spec_matches, _expls =
-            Match_taint_spec.spec_matches_of_taint_rule
-              ~per_file_formula_cache:formula_cache filter_relevance_conf
-              infile_s (ast, []) rule
-          in
-          match spec_matches with
-          | { Match_taint_spec.sources = []; sinks = [];
-              sanitizers = []; propagators = [] } ->
-              None
-          | _ ->
-              Some (fst rule.Rule.id, spec_matches))
+          match
+            Match_taint_spec.taint_config_of_rule
+              ~per_file_formula_cache:formula_cache filter_relevance_conf lang
+              infile (ast, []) rule
+          with
+          | Some (_taint_config, spec_matches, _expls) ->
+              Some (fst rule.Rule.id, spec_matches)
+          | None -> None)
         rules_to_run
     in
     let taint_configs_and_matches =
@@ -326,7 +324,8 @@ let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
     ast;
     lang;
     taint_entries =
-      collect_taint_entries caps ~num_domains ~infile_s ~ast taint_rules;
+      collect_taint_entries caps ~num_domains ~infile ~infile_s ~lang ~ast
+        taint_rules;
   }
 
 let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
@@ -336,11 +335,14 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
   let parse_result = Parse_target.just_parse_with_lang lang infile in
   let ast = parse_result.ast in
   let analyzer = Xlang.of_lang lang in
+  let has_parse_errors = parse_result.errors <> [] in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
   Taint_location.set_current_file_path infile_s;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
-  if file_size_bytes >= skip_taint_large_file_bytes then
+  if has_parse_errors then
+    { ast; lang; taint_entries = empty_taint_entries }
+  else if file_size_bytes >= skip_taint_large_file_bytes then
     { ast; lang; taint_entries = empty_taint_entries }
   else
     let taint_rules =
@@ -377,7 +379,7 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
         lang;
         taint_entries =
           collect_taint_entries caps ~num_domains ~shared_formula_cache:true
-            ~infile_s ~ast taint_rules;
+            ~infile ~infile_s ~lang ~ast taint_rules;
       }
 
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t list)
