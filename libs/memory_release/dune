@@ -1,0 +1,6 @@
+(library
+ (name memory_release)
+ (public_name semgrep.memory_release)
+ (foreign_stubs
+  (language c)
+  (names memory_release_stubs)))

@@ -403,6 +403,10 @@ let remove_open_document session file =
         List.filter
           (fun f -> not (Fpath.equal f file))
           session.cached_session.open_documents;
+      (* Evict cached scan results and document version for closed files
+         to prevent unbounded memory growth in the LSP server. *)
+      Hashtbl.remove session.cached_scans file;
+      Hashtbl.remove session.cached_document_versions file;
       Lwt.return_unit)
 
 let remove_open_documents session files =
@@ -411,6 +415,11 @@ let remove_open_documents session files =
         List.filter
           (fun f -> not (List.mem f files))
           session.cached_session.open_documents;
+      List.iter
+        (fun f ->
+          Hashtbl.remove session.cached_scans f;
+          Hashtbl.remove session.cached_document_versions f)
+        files;
       Lwt.return_unit)
 
 let update_workspace_folders ?(added = []) ?(removed = []) session =

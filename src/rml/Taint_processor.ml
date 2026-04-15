@@ -451,6 +451,9 @@ let parse_and_serialize_extension_pattern (caps : < Cap.fork >) ~(num_domains : 
   in
   serialize_ast_with_taint_to_string asts taint_entries
 
+(* Counter for periodic GC compaction *)
+let parse_counter = Atomic.make 0
+
 let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
     ?(format = `Json) ?(skip_taint_mode = false) (infile : Fpath.t)
     (infile_s : string) (rules: Rule.t list) : string =
@@ -459,12 +462,29 @@ let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
       parse_file_skip_taint caps ~num_domains infile infile_s rules
     else parse_file_legacy caps ~num_domains infile infile_s rules
   in
-  match format with
-  | `Json ->
-      let ast_json = ast_to_yojson parsed.ast in
-      serialize_ast_with_taint_to_string [ast_json] parsed.taint_entries
-  | `Binary ->
-      serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
+  let result =
+    match format with
+    | `Json ->
+        let ast_json = ast_to_yojson parsed.ast in
+        serialize_ast_with_taint_to_string [ast_json] parsed.taint_entries
+    | `Binary ->
+        serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
+  in
+  (* Clean up per-file caches that would otherwise accumulate indefinitely
+     in the LSP server. These caches store file contents and line/column
+     converters keyed by file path. In CLI mode they are cleaned up via
+     Globals.reset() or temp-file hooks, but in the LSP server neither
+     mechanism fires for real (non-temp) file paths. *)
+  Kcas_data.Hashtbl.remove Range.hmemo infile;
+  Kcas_data.Hashtbl.remove Xpattern_matcher.hmemo infile;
+  (* Ask the C allocator to return freed large blocks to the OS.
+     Tree-sitter parsing allocates large C blocks that, once freed,
+     remain as dirty MALLOC_LARGE (empty) pages on macOS.
+     Calling this after each file keeps RSS from growing unboundedly. *)
+  Memory_release.release ();
+  let count = Atomic.fetch_and_add parse_counter 1 + 1 in
+  if count mod 200 = 0 then Gc.compact ();
+  result
 
 let serialize_to_json_file ~(file : Fpath.t) (ast : AST_generic.program) : unit =
   let json_string = serialize_ast_to_json_string ast in
