@@ -1471,6 +1471,38 @@ and stmt_expr env ?g_expr st =
       let env, lv = lval_of_ent env ent in
       let env = mk_i (Assign (lv, e)) (Related (G.S st)) |> add_instr env in
       (env, mk_e (Fetch lv) (related_exp (G.e (G.StmtExpr st))))
+  | G.Switch (tok, switch_expr_opt, cases_and_bodies) ->
+      let env, ss, translate_cases =
+        match switch_expr_opt with
+        | Some switch_expr ->
+            let env, ss, switch_expr' = cond_with_pre_stmts env switch_expr in
+            (env, ss,
+             switch_expr_and_cases_to_exp tok
+               (H.cond_to_expr switch_expr) switch_expr')
+        | None -> (env, [], cases_to_exp tok)
+      in
+      let break_label, break_label_s, switch_env =
+        mk_switch_break_label env tok
+      in
+      let fresh = fresh_lval tok in
+      let lower_body env body =
+        let env, pre_ss, e_val = stmt_expr_with_pre_stmts env body in
+        let assign =
+          mk_s (Instr (mk_i (Assign (fresh, e_val)) (related_tok tok)))
+        in
+        (env, pre_ss @ [ assign ])
+      in
+      let env, jumps, bodies =
+        cases_and_bodies_to_stmts switch_env tok break_label
+          translate_cases lower_body cases_and_bodies
+      in
+      let env = add_stmts env (ss @ jumps @ bodies @ break_label_s) in
+      let eorig =
+        match g_expr with
+        | None -> related_exp (G.e (G.StmtExpr st))
+        | Some e_gen -> SameAs e_gen
+      in
+      (env, mk_e (Fetch fresh) eorig)
   | __else__ ->
       (* In any case, let's make sure the statement is in the IL translation
        * so that e.g. taint can do its job. *)
@@ -1901,7 +1933,7 @@ and stmt_aux env st =
       in
 
       let env, jumps, bodies =
-        cases_and_bodies_to_stmts switch_env tok break_label translate_cases
+        cases_and_bodies_to_stmts switch_env tok break_label translate_cases stmt
           cases_and_bodies
       in
 
@@ -2179,17 +2211,17 @@ and cases_to_exp tok env cases =
     ss,
     { e = Operator ((Or, tok), mk_unnamed_args es); eorig = related_tok tok } )
 
-and cases_and_bodies_to_stmts env tok break_label translate_cases = function
+and cases_and_bodies_to_stmts env tok break_label translate_cases lower_body = function
   | [] -> (env, [ mk_s (Goto (tok, break_label)) ], [])
   | G.CaseEllipsis tok :: _ -> sgrep_construct env.stmts (G.Tk tok)
   | [ G.CasesAndBody ([ G.Default dtok ], body) ] ->
       let label = fresh_label ~label:"__switch_default" tok in
 
-      let env, new_stmts = stmt env body in
+      let env, new_stmts = lower_body env body in
       (env, [ mk_s (Goto (dtok, label)) ], mk_s (Label label) :: new_stmts)
   | G.CasesAndBody (cases, body) :: xs ->
       let env, jumps, bodies =
-        cases_and_bodies_to_stmts env tok break_label translate_cases
+        cases_and_bodies_to_stmts env tok break_label translate_cases lower_body
           xs (* TODO this is not tail recursive *)
       in
       let label = fresh_label ~label:"__switch_case" tok in
@@ -2197,7 +2229,7 @@ and cases_and_bodies_to_stmts env tok break_label translate_cases = function
       let jump =
         mk_s (IL.If (tok, case, [ mk_s (Goto (tok, label)) ], jumps))
       in
-      let env, new_stmts = stmt env body in
+      let env, new_stmts = lower_body env body in
 
       let body = mk_s (Label label) :: new_stmts in
       let break_if_no_fallthrough =
