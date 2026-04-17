@@ -79,15 +79,13 @@ let skip_taint_large_file_bytes = 500_000
 
 
 (* Extract deduplication key for taint entries (sources/sinks/sanitizers) *)
-let taint_entry_key ({ rule; loc; _ } : Taint_serializer.taint_entry) =
-  Printf.sprintf "%s:%s" rule (Taint_location.loc_string loc)
+let taint_entry_key (rule_name, loc : string * Taint_location.taint_location) =
+  Printf.sprintf "%s:%s" rule_name (Taint_location.loc_string loc)
 
 (* Extract deduplication key for propagators *)
-let propagator_key
-    ({ rule; loc; locFrom; locTo; _ } : Taint_serializer.taint_propagator_entry)
-    =
+let propagator_key (rule_name, loc, locFrom, locTo : string * Taint_location.taint_location * Taint_location.taint_location * Taint_location.taint_location) =
   Printf.sprintf "%s:%s:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d"
-    rule
+    rule_name
     loc.file_path loc.line loc.col loc.offsetStart loc.offsetEnd
     locFrom.line locFrom.col locFrom.offsetStart locFrom.offsetEnd
     locTo.line locTo.col
@@ -160,26 +158,6 @@ let filter_relevance_conf =
     filter_irrelevant_rules = Match_env.NoPrefiltering;
     skip_taint = false;
   }
-
-let string_of_taint_formula (formula : Rule.formula) =
-  let rec go formula =
-    match formula.Rule.f with
-    | Rule.P p -> fst p.Xpattern.pstr
-    | Rule.Anywhere (_, formula)
-    | Rule.Inside (_, formula)
-    | Rule.Not (_, formula) ->
-        go formula
-    | Rule.Or (_, formulas)
-    | Rule.And (_, formulas) ->
-        formulas |> List_.map go |> String.concat "\n"
-  in
-  let pattern = go formula in
-  if pattern = "" then None else Some pattern
-
-let matched_pattern_of_range (rwm : Range_with_metavars.t) =
-  match rwm.Range_with_metavars.origin.Core_match.rule_id.pattern_string with
-  | "" -> None
-  | pattern -> Some pattern
 
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
@@ -266,46 +244,32 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
               chunks
             |> List.concat_map (function Ok r -> r | Error r -> r)
     in
-    let make_taint_entry rule_id fallback_pattern rwm =
+    let make_taint_entry rule_id rwm =
       let range = rwm.Range_with_metavars.r in
       let tok1, _tok2 = rwm.Range_with_metavars.origin.Core_match.range_loc in
       let rule_name = Rule_ID.to_string rule_id in
-      let loc = Taint_location.mk_loc_from_tok tok1 range in
-      let pattern =
-        match matched_pattern_of_range rwm with
-        | Some _ as pattern -> pattern
-        | None -> fallback_pattern
-      in
-      { Taint_serializer.rule = rule_name; loc; pattern }
+      let loc = Taint_location.mk_loc_from_tok ~file_path:infile_s tok1 range in
+      (rule_name, loc)
     in
     let taint_sources =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sources
-             |> List.map (fun (rwm, spec) ->
-                    make_taint_entry rule_id
-                      (string_of_taint_formula spec.Rule.source_formula)
-                      rwm))
+             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_sinks =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sinks
-             |> List.map (fun (rwm, spec) ->
-                    make_taint_entry rule_id
-                      (string_of_taint_formula spec.Rule.sink_formula)
-                      rwm))
+             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_sanitizers =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sanitizers
-             |> List.map (fun (rwm, spec) ->
-                    make_taint_entry rule_id
-                      (string_of_taint_formula spec.Rule.sanitizer_formula)
-                      rwm))
+             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_propagators =
@@ -313,25 +277,16 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.propagators
              |> List.map (fun (prop_match : Match_taint_spec.propagator_match) ->
-                    let entry =
-                      make_taint_entry rule_id
-                        (string_of_taint_formula
-                           prop_match.spec.Rule.propagator_formula)
-                        prop_match.rwm
+                    let rule_name, loc =
+                      make_taint_entry rule_id prop_match.rwm
                     in
                     let locFrom =
-                      Taint_location.mk_loc_from_range prop_match.from
+                      Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.from
                     in
                     let locTo =
-                      Taint_location.mk_loc_from_range prop_match.to_
+                      Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.to_
                     in
-                    {
-                      Taint_serializer.rule = entry.rule;
-                      loc = entry.loc;
-                      locFrom;
-                      locTo;
-                      pattern = entry.pattern;
-                    }))
+                    (rule_name, loc, locFrom, locTo)))
       |> List_.deduplicate_gen ~get_key:propagator_key
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
@@ -344,7 +299,6 @@ let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
   let analyzer = Xlang.of_lang lang in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
-  Taint_location.set_current_file_path infile_s;
   let filtered_rules =
     rules
     |> List.filter (fun (r : Rule.t) ->
@@ -383,7 +337,6 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
   let analyzer = Xlang.of_lang lang in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
-  Taint_location.set_current_file_path infile_s;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
   if file_size_bytes >= skip_taint_large_file_bytes then
     { ast; lang; taint_entries = empty_taint_entries }
@@ -431,30 +384,50 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
     (List.length files) description);
 
+  let glob_start_time = Unix.gettimeofday () in
+
+  let sorted_files =
+    files
+    |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
+  in
+
+  let process_file (file : Fpath.t) =
+    let file_s = Fpath.to_string file in
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
+    let start_time = Unix.gettimeofday () in
+    let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
+    let ast_json = ast_to_yojson parsed.ast in
+    let end_time = Unix.gettimeofday () in
+    let elapsed_ms = (end_time -. start_time) *. 1000.0 in
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
+    (ast_json, parsed.taint_entries)
+  in
+
+  let exception_handler (file : Fpath.t) (e : Exception.t) =
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
+      (Fpath.to_string file) (Exception.to_string e))
+  in
+
+  let results =
+    if num_domains <= 1 then
+      sorted_files
+      |> List_.map (fun f ->
+           Domainslib_.wrap_result process_file ~exception_handler f)
+    else
+      Domainslib_.parmap caps ~num_domains ~chunksize:1 ~exception_handler
+        process_file sorted_files
+  in
+
   let asts = ref [] in
   let taint_entries_list = ref [] in
   let error_count = ref 0 in
-  let glob_start_time = Unix.gettimeofday () in
-
-  List.iter (fun file ->
-    try
-      let file_s = Fpath.to_string file in
-      UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
-      let start_time = Unix.gettimeofday () in
-      let parsed = parse_file_legacy caps ~num_domains file file_s rules in
-      let ast_json = ast_to_yojson parsed.ast in
-      let end_time = Unix.gettimeofday () in
-      let elapsed_ms = (end_time -. start_time) *. 1000.0 in
-      UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
-      asts := ast_json :: !asts;
-      taint_entries_list := parsed.taint_entries :: !taint_entries_list
-    with
-    | exn ->
-        let error_msg = Printexc.to_string exn in
-        UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
-          (Fpath.to_string file) error_msg);
+  List.iter (function
+    | Ok (ast_json, taint_entries) ->
+        asts := ast_json :: !asts;
+        taint_entries_list := taint_entries :: !taint_entries_list
+    | Error () ->
         incr error_count
-  ) files;
+  ) results;
 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
     (List.length !asts) (List.length files) !error_count);
@@ -462,7 +435,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
   UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))));
 
-  let merged_taint_entries = merge_taint_entries !taint_entries_list in
+  let merged_taint_entries = merge_taint_entries (List.rev !taint_entries_list) in
   (List.rev !asts, merged_taint_entries)
 
 let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int) (folder_path : Fpath.t)
