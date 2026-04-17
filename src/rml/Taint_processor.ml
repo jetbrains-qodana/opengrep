@@ -248,7 +248,7 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
       let range = rwm.Range_with_metavars.r in
       let tok1, _tok2 = rwm.Range_with_metavars.origin.Core_match.range_loc in
       let rule_name = Rule_ID.to_string rule_id in
-      let loc = Taint_location.mk_loc_from_tok tok1 range in
+      let loc = Taint_location.mk_loc_from_tok ~file_path:infile_s tok1 range in
       (rule_name, loc)
     in
     let taint_sources =
@@ -281,10 +281,10 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
                       make_taint_entry rule_id prop_match.rwm
                     in
                     let locFrom =
-                      Taint_location.mk_loc_from_range prop_match.from
+                      Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.from
                     in
                     let locTo =
-                      Taint_location.mk_loc_from_range prop_match.to_
+                      Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.to_
                     in
                     (rule_name, loc, locFrom, locTo)))
       |> List_.deduplicate_gen ~get_key:propagator_key
@@ -299,7 +299,6 @@ let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
   let analyzer = Xlang.of_lang lang in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
-  Taint_location.set_current_file_path infile_s;
   let filtered_rules =
     rules
     |> List.filter (fun (r : Rule.t) ->
@@ -338,7 +337,6 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
   let analyzer = Xlang.of_lang lang in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
-  Taint_location.set_current_file_path infile_s;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
   if file_size_bytes >= skip_taint_large_file_bytes then
     { ast; lang; taint_entries = empty_taint_entries }
@@ -386,30 +384,50 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
     (List.length files) description);
 
+  let glob_start_time = Unix.gettimeofday () in
+
+  let sorted_files =
+    files
+    |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
+  in
+
+  let process_file (file : Fpath.t) =
+    let file_s = Fpath.to_string file in
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
+    let start_time = Unix.gettimeofday () in
+    let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
+    let ast_json = ast_to_yojson parsed.ast in
+    let end_time = Unix.gettimeofday () in
+    let elapsed_ms = (end_time -. start_time) *. 1000.0 in
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
+    (ast_json, parsed.taint_entries)
+  in
+
+  let exception_handler (file : Fpath.t) (e : Exception.t) =
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
+      (Fpath.to_string file) (Exception.to_string e))
+  in
+
+  let results =
+    if num_domains <= 1 then
+      sorted_files
+      |> List_.map (fun f ->
+           Domainslib_.wrap_result process_file ~exception_handler f)
+    else
+      Domainslib_.parmap caps ~num_domains ~chunksize:1 ~exception_handler
+        process_file sorted_files
+  in
+
   let asts = ref [] in
   let taint_entries_list = ref [] in
   let error_count = ref 0 in
-  let glob_start_time = Unix.gettimeofday () in
-
-  List.iter (fun file ->
-    try
-      let file_s = Fpath.to_string file in
-      UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
-      let start_time = Unix.gettimeofday () in
-      let parsed = parse_file_legacy caps ~num_domains file file_s rules in
-      let ast_json = ast_to_yojson parsed.ast in
-      let end_time = Unix.gettimeofday () in
-      let elapsed_ms = (end_time -. start_time) *. 1000.0 in
-      UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
-      asts := ast_json :: !asts;
-      taint_entries_list := parsed.taint_entries :: !taint_entries_list
-    with
-    | exn ->
-        let error_msg = Printexc.to_string exn in
-        UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
-          (Fpath.to_string file) error_msg);
+  List.iter (function
+    | Ok (ast_json, taint_entries) ->
+        asts := ast_json :: !asts;
+        taint_entries_list := taint_entries :: !taint_entries_list
+    | Error () ->
         incr error_count
-  ) files;
+  ) results;
 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
     (List.length !asts) (List.length files) !error_count);
@@ -417,7 +435,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
   UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))));
 
-  let merged_taint_entries = merge_taint_entries !taint_entries_list in
+  let merged_taint_entries = merge_taint_entries (List.rev !taint_entries_list) in
   (List.rev !asts, merged_taint_entries)
 
 let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int) (folder_path : Fpath.t)
