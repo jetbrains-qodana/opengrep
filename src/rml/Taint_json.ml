@@ -6,13 +6,14 @@ let main (caps : Cap.all_caps) : unit =
     UCommon.pr2 "  <input-path>: Source file, directory, or *.extension pattern (e.g., *.cs) to process.";
     UCommon.pr2 "                Directories and extension patterns are processed recursively.";
     UCommon.pr2 "  <rules-path>: Optional YAML file or directory with taint rules. If omitted, no taint analysis is performed.";
-    UCommon.pr2 "  format=json|binary: Optional output format (default json)."
+    UCommon.pr2 "  format=json|binary: Optional output format (default json).";
+    UCommon.pr2 "  jobs=N:       Number of parallel jobs (default: number of CPUs)."
   in
 
   let arg_index = ref 1 in
 
   let remaining = Array.length argv - !arg_index in
-  if remaining < 2 || remaining > 4 then (
+  if remaining < 2 || remaining > 5 then (
     usage ();
     CapStdlib.exit caps#exit 2
   );
@@ -24,12 +25,13 @@ let main (caps : Cap.all_caps) : unit =
   let outfile_s = argv.(!arg_index + 1) in
   let rules_path_opt = ref None in
   let format = ref `Json in
-  let parse_format_arg value =
-    if String.starts_with ~prefix:"format=" value then
+  let num_domains = ref (Domainslib_.get_cpu_count ()) in
+  let parse_optional_arg value =
+    if String.starts_with ~prefix:"format=" value then (
       let raw = String.sub value 7 (String.length value - 7) in
-      match raw with
-      | "json" -> Some `Json
-      | "binary" -> Some `Binary
+      (match raw with
+      | "json" -> format := `Json
+      | "binary" -> format := `Binary
       | _ ->
           UCommon.pr2
             (Printf.sprintf
@@ -37,29 +39,30 @@ let main (caps : Cap.all_caps) : unit =
                raw
                (match !format with
                | `Json -> "json"
-               | `Binary -> "binary"));
-          Some !format
-    else
-      None
-  in
-  if remaining >= 3 then (
-    let arg3 = argv.(!arg_index + 2) in
-    match parse_format_arg arg3 with
-    | Some v -> format := v
-    | None -> rules_path_opt := Some arg3
-  );
-  if remaining = 4 then (
-    let arg4 = argv.(!arg_index + 3) in
-    match parse_format_arg arg4 with
-    | Some v -> format := v
-    | None ->
-        if Option.is_none !rules_path_opt then
-          rules_path_opt := Some arg4
-        else (
+               | `Binary -> "binary")));
+      true)
+    else if String.starts_with ~prefix:"jobs=" value then (
+      let raw = String.sub value 5 (String.length value - 5) in
+      (match int_of_string_opt raw with
+      | Some n when n >= 1 -> num_domains := n
+      | _ ->
+          UCommon.pr2
+            (Printf.sprintf
+               "[taint-json] Invalid jobs value '%s', expected positive integer"
+               raw);
           usage ();
-          CapStdlib.exit caps#exit 2
-        )
-  );
+          CapStdlib.exit caps#exit 2);
+      true)
+    else false
+  in
+  for i = 2 to remaining - 1 do
+    let arg = argv.(!arg_index + i) in
+    if not (parse_optional_arg arg) then
+      if Option.is_none !rules_path_opt then rules_path_opt := Some arg
+      else (
+        usage ();
+        CapStdlib.exit caps#exit 2)
+  done;
   let infile = Fpath.v infile_s in
   let outfile = Fpath.v outfile_s in
 
@@ -139,7 +142,7 @@ let main (caps : Cap.all_caps) : unit =
   );
 
   let fork_caps = (caps :> < Cap.fork >) in
-  let num_domains = Domainslib_.get_cpu_count () in
+  let num_domains = !num_domains in
 
   (* Generate IR with taint analysis *)
   let s =
