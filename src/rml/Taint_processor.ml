@@ -393,13 +393,8 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
-    let start_time = Unix.gettimeofday () in
     let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
     let ast_json = ast_to_yojson parsed.ast in
-    let end_time = Unix.gettimeofday () in
-    let elapsed_ms = (end_time -. start_time) *. 1000.0 in
-    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
     (ast_json, parsed.taint_entries)
   in
 
