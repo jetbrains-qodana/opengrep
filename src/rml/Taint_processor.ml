@@ -77,6 +77,23 @@ let serialize_empty_ast_with_taint_to_string () =
 
 let skip_taint_large_file_bytes = 500_000
 
+let stdout_mutex = Mutex.create ()
+
+let write_result_to_stdout (file_s : string) (ast_json : Y.t)
+    (taint_entries : Taint_serializer.taint_entries_t) : unit =
+  let taint_value =
+    `Assoc (Taint_serializer.yojson_fields_of_taint_entries taint_entries)
+  in
+  let data = `Assoc [ ("ast", ast_json); ("taint", taint_value) ] in
+  let msg =
+    Y.to_string (`Assoc [ ("file", `String file_s); ("data", data) ])
+  in
+  let size = String.length msg in
+  Mutex.lock stdout_mutex;
+  Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
+    Printf.printf "%d\n%s\n" size msg;
+    flush stdout)
+
 
 (* Extract deduplication key for taint entries (sources/sinks/sanitizers) *)
 let taint_entry_key (rule_name, loc : string * Taint_location.taint_location) =
@@ -379,8 +396,7 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
       }
 
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t list)
-    (description : string) (rules : Rule.t list)
-    : Y.t list * Taint_serializer.taint_entries_t =
+    (description : string) (rules : Rule.t list) : unit =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
     (List.length files) description);
 
@@ -395,7 +411,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
     let file_s = Fpath.to_string file in
     let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
     let ast_json = ast_to_yojson parsed.ast in
-    (ast_json, parsed.taint_entries)
+    write_result_to_stdout file_s ast_json parsed.taint_entries
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
@@ -413,54 +429,26 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
         process_file sorted_files
   in
 
-  let asts = ref [] in
-  let taint_entries_list = ref [] in
-  let error_count = ref 0 in
-  List.iter (function
-    | Ok (ast_json, taint_entries) ->
-        asts := ast_json :: !asts;
-        taint_entries_list := taint_entries :: !taint_entries_list
-    | Error () ->
-        incr error_count
-  ) results;
+  let success_count =
+    List.length (List.filter Result.is_ok results)
+  in
+  let error_count = List.length results - success_count in
 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
-    (List.length !asts) (List.length files) !error_count);
+    success_count (List.length files) error_count);
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))));
-
-  let merged_taint_entries = merge_taint_entries (List.rev !taint_entries_list) in
-  (List.rev !asts, merged_taint_entries)
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))))
 
 let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int) (folder_path : Fpath.t)
-    (folder_path_s : string) (rules : Rule.t list)
-    : Y.t list * Taint_serializer.taint_entries_t =
+    (folder_path_s : string) (rules : Rule.t list) : unit =
   let files = get_supported_files folder_path in
   parse_files_ast caps ~num_domains files (Printf.sprintf "from folder: %s" folder_path_s) rules
 
 let parse_extension_pattern_ast (caps : < Cap.fork >) ~(num_domains : int) (pattern_s : string)
-    (rules : Rule.t list)
-    : Y.t list * Taint_serializer.taint_entries_t =
+    (rules : Rule.t list) : unit =
   let files = expand_extension_pattern pattern_s in
   parse_files_ast caps ~num_domains files (Printf.sprintf "matching pattern: %s" pattern_s) rules
-
-(* Serialize folder processing results to JSON string *)
-let parse_and_serialize_folder (caps : < Cap.fork >) ~(num_domains : int)
-    (folder_path : Fpath.t) (folder_path_s : string)
-    (rules : Rule.t list) : string =
-  let asts, taint_entries =
-    parse_folder_ast caps ~num_domains folder_path folder_path_s rules
-  in
-  serialize_ast_with_taint_to_string asts taint_entries
-
-(* Serialize extension pattern processing results to JSON string *)
-let parse_and_serialize_extension_pattern (caps : < Cap.fork >) ~(num_domains : int)
-    (pattern_s : string) (rules : Rule.t list) : string =
-  let asts, taint_entries =
-    parse_extension_pattern_ast caps ~num_domains pattern_s rules
-  in
-  serialize_ast_with_taint_to_string asts taint_entries
 
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0

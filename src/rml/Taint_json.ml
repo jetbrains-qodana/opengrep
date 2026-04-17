@@ -144,22 +144,19 @@ let main (caps : Cap.all_caps) : unit =
   let fork_caps = (caps :> < Cap.fork >) in
   let num_domains = !num_domains in
 
-  (* Generate IR with taint analysis *)
-  let s =
-    if !format = `Binary then (
-      Taint_processor.parse_and_serialize_file fork_caps ~num_domains ~format:`Binary infile infile_s rules
-    ) else if is_extension_pattern then (
-      UCommon.pr2 (Printf.sprintf "[taint-json] Input is extension pattern, expanding: %s" infile_s);
-      Taint_processor.parse_and_serialize_extension_pattern fork_caps ~num_domains infile_s rules
-    ) else if is_directory then (
-      UCommon.pr2 "[taint-json] Input is a directory, processing recursively";
-      Taint_processor.parse_and_serialize_folder fork_caps ~num_domains infile infile_s rules
-    ) else (
-      UCommon.pr2 "[taint-json] Input is a file";
-      Taint_processor.parse_and_serialize_file fork_caps ~num_domains infile infile_s rules
-    )
-  in
-
-  UFile.write_file ~file:outfile s
+  if is_extension_pattern then (
+    UCommon.pr2 (Printf.sprintf "[taint-json] Input is extension pattern, expanding: %s" infile_s);
+    Taint_processor.parse_extension_pattern_ast fork_caps ~num_domains infile_s rules
+  ) else if is_directory then (
+    UCommon.pr2 "[taint-json] Input is a directory, processing recursively";
+    Taint_processor.parse_folder_ast fork_caps ~num_domains infile infile_s rules
+  ) else (
+    UCommon.pr2 "[taint-json] Input is a file";
+    let s =
+      Taint_processor.parse_and_serialize_file fork_caps ~num_domains
+        ~format:!format infile infile_s rules
+    in
+    UFile.write_file ~file:outfile s
+  )
 
 let () = Cap.main main
