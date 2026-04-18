@@ -120,51 +120,6 @@ let split_into_chunks n lst =
         Array.to_list (Array.sub a lo (hi - lo)))
     |> List.filter (fun c -> c <> [])
 
-(* Get all supported files from a directory recursively *)
-let get_supported_files (path : Fpath.t) : Fpath.t list =
-  List_files.list_regular_files path
-  |> List.filter (fun file_path ->
-       match Lang.langs_of_filename file_path with
-       | [] -> false  (* No supported language *)
-       | _ :: _ -> true)
-
-(* Check if pattern is simple "*.extension" format *)
-let is_simple_extension_pattern (path_s : string) : bool =
-  String.starts_with ~prefix:"*." path_s && not (String.contains (String.sub path_s 2 (String.length path_s - 2)) '*')
-
-(* Expand "*.extension" pattern to matching files in current directory recursively *)
-let expand_extension_pattern (pattern_s : string) : Fpath.t list =
-  (* Extract extension from "*.ext" *)
-  let extension = String.sub pattern_s 2 (String.length pattern_s - 2) in
-  let current_dir = Fpath.v "." in
-
-  (* List all files recursively in current directory *)
-  try
-    List_files.list_regular_files current_dir
-    |> List.filter (fun file_path ->
-         Filename.check_suffix (Fpath.to_string file_path) extension)
-    |> List.filter (fun file_path ->
-         match Lang.langs_of_filename file_path with
-         | [] -> false
-         | _ :: _ -> true)
-  with _ -> []
-
-(* Merge and deduplicate taint entries from multiple files *)
-let merge_taint_entries (entries_list : Taint_serializer.taint_entries_t list)
-    : Taint_serializer.taint_entries_t =
-  let all_sources = entries_list |> List.concat_map (fun (s, _, _, _) -> s) in
-  let all_sinks = entries_list |> List.concat_map (fun (_, si, _, _) -> si) in
-  let all_sanitizers = entries_list |> List.concat_map (fun (_, _, sa, _) -> sa) in
-  let all_propagators = entries_list |> List.concat_map (fun (_, _, _, p) -> p) in
-
-  (* Deduplicate using the helper functions defined above *)
-  let deduped_sources = List_.deduplicate_gen ~get_key:taint_entry_key all_sources in
-  let deduped_sinks = List_.deduplicate_gen ~get_key:taint_entry_key all_sinks in
-  let deduped_sanitizers = List_.deduplicate_gen ~get_key:taint_entry_key all_sanitizers in
-  let deduped_propagators = List_.deduplicate_gen ~get_key:propagator_key all_propagators in
-
-  (deduped_sources, deduped_sinks, deduped_sanitizers, deduped_propagators)
-
 let filter_relevance_conf =
   {
     Match_env.config = Rule_options.default;
@@ -439,16 +394,6 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
   UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))))
-
-let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int) (folder_path : Fpath.t)
-    (folder_path_s : string) (rules : Rule.t list) : unit =
-  let files = get_supported_files folder_path in
-  parse_files_ast caps ~num_domains files (Printf.sprintf "from folder: %s" folder_path_s) rules
-
-let parse_extension_pattern_ast (caps : < Cap.fork >) ~(num_domains : int) (pattern_s : string)
-    (rules : Rule.t list) : unit =
-  let files = expand_extension_pattern pattern_s in
-  parse_files_ast caps ~num_domains files (Printf.sprintf "matching pattern: %s" pattern_s) rules
 
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0
