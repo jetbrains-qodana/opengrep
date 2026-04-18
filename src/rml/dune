@@ -23,6 +23,7 @@
  (libraries
   TCB
   unix
+  cmdliner
   semgrep.core_cli
   semgrep.osemgrep_cli
   semgrep.rml
