@@ -44,19 +44,14 @@ let serialize_ast_to_json_string (ast : AST_generic.program) : string =
 let ast_to_yojson (ast : AST_generic.program) : Y.t =
   ast |> serialize_ast_to_json_string |> Y.from_string
 
-let serialize_ast_with_taint_to_string (asts : Y.t list)
-    (taint_entries : Taint_serializer.taint_entries_t) : string =
-  let ast_value =
-    match asts with
-    | [ single ] -> single
-    | _ -> `List asts
-  in
+let serialize_ast_with_taint_to_string (ast : AST_generic.program)
+    (taint_entries : Taint_serializer.taint_entries_t) : Y.t =
+  let ast_json = ast_to_yojson ast in
   let taint_value = `Assoc (Taint_serializer.yojson_fields_of_taint_entries taint_entries) in
-  `Assoc [ ("ast", ast_value); ("taint", taint_value) ]
-  |> Y.pretty_to_string
+  `Assoc [ ("ast", ast_json); ("taint", taint_value) ]
 
 let serialize_ast_with_taint_to_binary_string (ast : AST_generic.program)
-    (taint_entries : Taint_serializer.taint_entries_t) : string =
+    (taint_entries : Taint_serializer.taint_entries_t) : Y.t =
   let v1_ast = AST_generic_to_v1.program ast in
   let pool_builder = Ast_binary_serializer.create_string_pool_builder () in
   Ast_binary_serializer.collect_program v1_ast pool_builder;
@@ -68,23 +63,25 @@ let serialize_ast_with_taint_to_binary_string (ast : AST_generic.program)
     [ ("stringPool", Ast_binary_serializer.string_pool_to_yojson pool);
       ("astBinary", `String (base64_encode ast_binary));
       ("taintBinary", `String (base64_encode taint_binary)) ]
-  |> Y.pretty_to_string
 
 let empty_taint_entries : Taint_serializer.taint_entries_t = ([], [], [], [])
 
 let serialize_empty_ast_with_taint_to_string () =
-  serialize_ast_with_taint_to_string [ `List [] ] empty_taint_entries
+  serialize_ast_with_taint_to_string [] empty_taint_entries |> Y.pretty_to_string
 
 let skip_taint_large_file_bytes = 500_000
 
 let stdout_mutex = Mutex.create ()
 
-let write_result_to_stdout (file_s : string) (ast_json : Y.t)
-    (taint_entries : Taint_serializer.taint_entries_t) : unit =
-  let taint_value =
-    `Assoc (Taint_serializer.yojson_fields_of_taint_entries taint_entries)
+let write_result_to_stdout ~(format : ast_format) (file_s : string)
+    (parsed : parsed_file) : unit =
+  let data =
+    match format with
+    | `Json ->
+        serialize_ast_with_taint_to_string parsed.ast parsed.taint_entries
+    | `Binary ->
+        serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
   in
-  let data = `Assoc [ ("ast", ast_json); ("taint", taint_value) ] in
   let msg =
     Y.to_string (`Assoc [ ("file", `String file_s); ("data", data) ])
   in
@@ -350,7 +347,8 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
             ~infile_s ~ast taint_rules;
       }
 
-let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t list)
+let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
+    ~(format : ast_format) (files : Fpath.t list)
     (description : string) (rules : Rule.t list) : unit =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
     (List.length files) description);
@@ -365,8 +363,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
     let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
-    let ast_json = ast_to_yojson parsed.ast in
-    write_result_to_stdout file_s ast_json parsed.taint_entries
+    write_result_to_stdout ~format file_s parsed
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
@@ -409,10 +406,9 @@ let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
   let result =
     match format with
     | `Json ->
-        let ast_json = ast_to_yojson parsed.ast in
-        serialize_ast_with_taint_to_string [ast_json] parsed.taint_entries
+        serialize_ast_with_taint_to_string parsed.ast parsed.taint_entries |> Y.pretty_to_string
     | `Binary ->
-        serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
+        serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries |> Y.pretty_to_string
   in
   (* Clean up per-file caches that would otherwise accumulate indefinitely
      in the LSP server. These caches store file contents and line/column

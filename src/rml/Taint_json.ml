@@ -120,6 +120,7 @@ let main (caps : Cap.all_caps) : unit =
     CapStdlib.exit caps#exit 0
   );
 
-  Taint_processor.parse_files_ast (caps :> < Cap.fork >) ~num_domains:conf.jobs files "" rules
+  Taint_processor.parse_files_ast (caps :> < Cap.fork >) ~num_domains:conf.jobs
+    ~format:conf.format files "" rules
 
 let () = Cap.main main
