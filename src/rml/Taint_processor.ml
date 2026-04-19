@@ -82,13 +82,13 @@ let write_result_to_stdout ~(format : ast_format) (file_s : string)
     | `Binary ->
         serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
   in
-  let msg =
+  let line =
     Y.to_string (`Assoc [ ("file", `String file_s); ("data", data) ])
   in
-  let size = String.length msg in
   Mutex.lock stdout_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
-    Printf.printf "%d\n%s\n" size msg;
+    output_string stdout line;
+    output_char stdout '\n';
     flush stdout)
 
 
