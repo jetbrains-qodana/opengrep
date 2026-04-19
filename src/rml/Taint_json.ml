@@ -42,7 +42,7 @@ let man : Cmdliner.Manpage.block list =
   [
     `S Cmdliner.Manpage.s_description;
     `P "Reads file paths from stdin (one per line), parses each file, \
-        and streams length-prefixed JSON results to stdout.";
+        and streams newline delimited JSON results to stdout.";
   ]
 
 let cmdline_info : Cmd.info = Cmd.info "taint-json" ~doc ~man
