@@ -362,7 +362,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    let parsed = parse_file_legacy caps ~num_domains:1 file file_s rules in
+    let parsed = parse_file_skip_taint caps ~num_domains:1 file file_s rules in
     write_result_to_stdout ~format file_s parsed
   in
 
