@@ -70,6 +70,15 @@ class ['self] extract_strings_and_mvars_visitor ?lang () =
             ()
         | _ -> super#visit_name env x
 
+      method! visit_parameter_classic env p =
+        if IdFlags.is_hidden !(p.pinfo.id_flags) then ()
+        else super#visit_parameter_classic env p
+
+      method! visit_pattern env x =
+        match x with
+        | PatId (_, { id_flags; _ }) when IdFlags.is_hidden !id_flags -> ()
+        | _ -> super#visit_pattern env x
+
       method! visit_directive env x =
         match x with
         | { d = ImportFrom (_, FileName (str, _), _); _ }
