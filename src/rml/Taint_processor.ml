@@ -259,44 +259,7 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
-let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
-    (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
-  Parsing_init.init ();
-  let ast = Parse_target.parse_program infile in
-  let lang = Lang.lang_of_filename_exn infile in
-  let analyzer = Xlang.of_lang lang in
-  Naming_AST.resolve lang ast;
-  Implicit_return.mark_implicit_return lang ast;
-  let filtered_rules =
-    rules
-    |> List.filter (fun (r : Rule.t) ->
-           Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer)
-    |> List_.deduplicate_gen
-         ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
-  in
-  let xtarget = xtarget_for_ast infile analyzer (lazy (ast, [])) in
-  let taint_rules, _nontaint_rules, _skipped_rules =
-    filtered_rules
-    |> Either_.partition_either3 (fun r ->
-           let relevant_rule =
-             Match_rules.is_relevant_rule_for_xtarget r filter_relevance_conf
-               xtarget
-           in
-           match r.Rule.mode with
-           | _ when not relevant_rule -> Either_.Right3 r
-           | `Taint _ as mode -> Either_.Left3 { r with mode }
-           | (`Extract _ | `Search _) as mode -> Either_.Middle3 { r with mode }
-           | `SCA _ -> Either_.Right3 r
-           | `Steps _ -> Either_.Right3 r)
-  in
-  {
-    ast;
-    lang;
-    taint_entries =
-      collect_taint_entries caps ~num_domains ~infile_s ~ast taint_rules;
-  }
-
-let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
+let parse_file (caps : < Cap.fork >) ~(num_domains : int)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
@@ -365,7 +328,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    let parsed = parse_file_skip_taint caps ~num_domains:1 file file_s rules in
+    let parsed = parse_file caps ~num_domains:1 file file_s rules in
     write_result_to_stdout ~format file_s parsed
   in
 
@@ -401,7 +364,7 @@ let parse_counter = Atomic.make 0
 let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
     ?(format = `Json) (infile : Fpath.t)
     (infile_s : string) (rules: Rule.t list) : string =
-  let parsed = parse_file_skip_taint caps ~num_domains infile infile_s rules
+  let parsed = parse_file caps ~num_domains infile infile_s rules
   in
   let result =
     match format with
