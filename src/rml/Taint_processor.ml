@@ -357,6 +357,10 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 
   let sorted_files =
     files
+    |> List.filter (fun file_path ->
+           match Lang.langs_of_filename file_path with
+           | [] -> false  (* Not supported language *)
+           | _ :: _ -> true)
     |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
   in
 
