@@ -2,17 +2,21 @@ let main (caps : Cap.all_caps) : unit =
   let argv = CapSys.argv caps#argv in
   let usage () =
     UCommon.pr2
-      "Usage: taint-json <input-path> <output-file> [<rules-path>] [format=json|binary]";
+      "Usage: taint-json <input-path> <output-file> [<rules-path>] [format=json|binary] [logs=<csv-file>]";
     UCommon.pr2 "  <input-path>: Source file, directory, or *.extension pattern (e.g., *.cs) to process.";
     UCommon.pr2 "                Directories and extension patterns are processed recursively.";
     UCommon.pr2 "  <rules-path>: Optional YAML file or directory with taint rules. If omitted, no taint analysis is performed.";
-    UCommon.pr2 "  format=json|binary: Optional output format (default json)."
+    UCommon.pr2 "  format=json|binary: Optional output format (default json).";
+    UCommon.pr2 "  logs=<csv-file>: Optional. When provided, also run a per-rule timing";
+    UCommon.pr2 "                   benchmark and write a CSV table (rows=files,";
+    UCommon.pr2 "                   cols=rules, cells=ms, empty cell for not applicable rules).";
+    UCommon.pr2 "                   Forces single threaded execution."
   in
 
   let arg_index = ref 1 in
 
   let remaining = Array.length argv - !arg_index in
-  if remaining < 2 || remaining > 4 then (
+  if remaining < 2 then (
     usage ();
     CapStdlib.exit caps#exit 2
   );
@@ -24,6 +28,8 @@ let main (caps : Cap.all_caps) : unit =
   let outfile_s = argv.(!arg_index + 1) in
   let rules_path_opt = ref None in
   let format = ref `Json in
+  let logs_path_opt = ref None in
+
   let parse_format_arg value =
     if String.starts_with ~prefix:"format=" value then
       let raw = String.sub value 7 (String.length value - 7) in
@@ -42,24 +48,37 @@ let main (caps : Cap.all_caps) : unit =
     else
       None
   in
-  if remaining >= 3 then (
-    let arg3 = argv.(!arg_index + 2) in
-    match parse_format_arg arg3 with
-    | Some v -> format := v
-    | None -> rules_path_opt := Some arg3
-  );
-  if remaining = 4 then (
-    let arg4 = argv.(!arg_index + 3) in
-    match parse_format_arg arg4 with
+
+  let parse_logs_arg value =
+    if String.starts_with ~prefix:"logs=" value then
+      let raw = String.sub value 5 (String.length value - 5) in
+      Some raw
+    else
+      None
+  in
+
+  (* Parse positional/named args starting from arg_index + 2. Named args
+     ([format=...], [logs=...]) may appear in any order. Any remaining
+     positional arg is treated as the rules path. *)
+  for i = !arg_index + 2 to Array.length argv - 1 do
+    let arg = argv.(i) in
+    begin match parse_format_arg arg with
     | Some v -> format := v
     | None ->
-        if Option.is_none !rules_path_opt then
-          rules_path_opt := Some arg4
-        else (
-          usage ();
-          CapStdlib.exit caps#exit 2
-        )
-  );
+        begin match parse_logs_arg arg with
+        | Some p -> logs_path_opt := Some p
+        | None ->
+            if Option.is_none !rules_path_opt then
+              rules_path_opt := Some arg
+            else (
+              UCommon.pr2 (Printf.sprintf "[taint-json] Unexpected argument: %s" arg);
+              usage ();
+              CapStdlib.exit caps#exit 2
+            )
+        end
+    end
+  done;
+
   let infile = Fpath.v infile_s in
   let outfile = Fpath.v outfile_s in
 
@@ -139,24 +158,51 @@ let main (caps : Cap.all_caps) : unit =
   );
 
   let fork_caps = (caps :> < Cap.fork >) in
-  let num_domains = Domainslib_.get_cpu_count () in
+  (* When logs mode is enabled, force single-domain execution as requested. *)
+  let num_domains =
+    match !logs_path_opt with
+    | Some _ -> 1
+    | None -> Domainslib_.get_cpu_count ()
+  in
+
+  (* When logs mode is enabled, build a sink that the pipeline will populate
+     as rules are evaluated on each file. The CSV is rendered from the sink
+     after the normal pipeline finishes. *)
+  let logs_sink =
+    match !logs_path_opt with
+    | Some _ -> Some (Taint_processor.make_logs_sink rules)
+    | None -> None
+  in
 
   (* Generate IR with taint analysis *)
   let s =
     if !format = `Binary then (
-      Taint_processor.parse_and_serialize_file fork_caps ~num_domains ~format:`Binary infile infile_s rules
+      Taint_processor.parse_and_serialize_file fork_caps ~num_domains
+        ?logs_sink ~format:`Binary infile infile_s rules
     ) else if is_extension_pattern then (
       UCommon.pr2 (Printf.sprintf "[taint-json] Input is extension pattern, expanding: %s" infile_s);
-      Taint_processor.parse_and_serialize_extension_pattern fork_caps ~num_domains infile_s rules
+      Taint_processor.parse_and_serialize_extension_pattern fork_caps
+        ~num_domains ?logs_sink infile_s rules
     ) else if is_directory then (
       UCommon.pr2 "[taint-json] Input is a directory, processing recursively";
-      Taint_processor.parse_and_serialize_folder fork_caps ~num_domains infile infile_s rules
+      Taint_processor.parse_and_serialize_folder fork_caps ~num_domains
+        ?logs_sink infile infile_s rules
     ) else (
       UCommon.pr2 "[taint-json] Input is a file";
-      Taint_processor.parse_and_serialize_file fork_caps ~num_domains infile infile_s rules
+      Taint_processor.parse_and_serialize_file fork_caps ~num_domains
+        ?logs_sink infile infile_s rules
     )
   in
 
-  UFile.write_file ~file:outfile s
+  UFile.write_file ~file:outfile s;
+
+  (* Optional: write per-rule timing CSV for benchmarking. *)
+  (match !logs_path_opt, logs_sink with
+   | Some logs_path_s, Some sink ->
+       let logs_path = Fpath.v logs_path_s in
+       UCommon.pr2
+         (Printf.sprintf "[taint-json] Writing timing CSV to %s" logs_path_s);
+       Taint_processor.write_logs_csv sink ~out_csv:logs_path
+   | _ -> ())
 
 let () = Cap.main main

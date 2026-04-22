@@ -186,6 +186,31 @@ let summarize_prefilter_rules ~(content : string) (rules : Rule.t list) : Rule.t
     [] rules
   |> List.rev
 
+(* Per-file timing sink for the logs mode. Timings are recorded as taint
+   rules are actually evaluated in [collect_taint_entries]; rules whose
+   language is incompatible with a given file, or rules that get filtered
+   out earlier in the pipeline, are never evaluated and will therefore
+   appear as [-1] in the rendered CSV. *)
+type logs_sink = {
+  all_rule_names : string list;
+    (* All taint rule ids loaded at startup, used as CSV column order. *)
+  mutable rows_rev : (string * (string * float) list) list;
+    (* (file_path, [(rule_name, time_ms); ...]) collected in reverse order. *)
+}
+
+let make_logs_sink (rules : Rule.t list) : logs_sink =
+  let all_rule_names =
+    rules 
+    |> List_.deduplicate_gen ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id)) 
+    |> List.filter_map
+      (fun (r : Rule.t) ->
+        match r.Rule.mode with
+        | `Taint _ -> Some (Rule_ID.to_string (fst r.Rule.id))
+        | _ -> None)
+      
+  in
+  { all_rule_names; rows_rev = [] }
+
 let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
     (lazy_ast_and_errors :
       (AST_generic.program * Tok.location list) Lazy.t) : Xtarget.t =
@@ -198,19 +223,30 @@ let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
 
 let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
     ?(shared_formula_cache = false)
+    ?(per_rule_timing : (string * float) list ref option)
     ~(infile_s : string)
     ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
     Taint_serializer.taint_entries_t =
   if taint_rules = [] then empty_taint_entries
   else
+    let record_timing (rule : Rule.taint_rule) (ms : float) : unit =
+      match per_rule_timing with
+      | None -> ()
+      | Some acc ->
+          let name = Rule_ID.to_string (fst rule.Rule.id) in
+          acc := (name, ms) :: !acc
+    in
     let process_rules formula_cache (rules_to_run : Rule.taint_rule list) =
       List.filter_map
         (fun (rule : Rule.taint_rule) ->
+          let t0 = Unix.gettimeofday () in
           let spec_matches, _expls =
             Match_taint_spec.spec_matches_of_taint_rule
               ~per_file_formula_cache:formula_cache filter_relevance_conf
               infile_s (ast, []) rule
           in
+          let t1 = Unix.gettimeofday () in
+          record_timing rule ((t1 -. t0) *. 1000.0);
           match spec_matches with
           | { Match_taint_spec.sources = []; sinks = [];
               sanitizers = []; propagators = [] } ->
@@ -292,6 +328,7 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
 let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
   Parsing_init.init ();
   let ast = Parse_target.parse_program infile in
@@ -322,12 +359,20 @@ let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
            | `SCA _ -> Either_.Right3 r
            | `Steps _ -> Either_.Right3 r)
   in
-  {
-    ast;
-    lang;
-    taint_entries =
-      collect_taint_entries caps ~num_domains ~infile_s ~ast taint_rules;
-  }
+  let per_rule_timing =
+    match logs_sink with
+    | None -> None
+    | Some _ -> Some (ref [])
+  in
+  let taint_entries =
+    collect_taint_entries caps ~num_domains ?per_rule_timing
+      ~infile_s ~ast taint_rules
+  in
+  (match logs_sink, per_rule_timing with
+   | Some sink, Some acc ->
+       sink.rows_rev <- (infile_s, !acc) :: sink.rows_rev
+   | _ -> ());
+  { ast; lang; taint_entries }
 
 let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
@@ -380,7 +425,9 @@ let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
             ~infile_s ~ast taint_rules;
       }
 
-let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t list)
+let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
+    (files : Fpath.t list)
     (description : string) (rules : Rule.t list)
     : Y.t list * Taint_serializer.taint_entries_t =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
@@ -396,7 +443,9 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
       let file_s = Fpath.to_string file in
       UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
       let start_time = Unix.gettimeofday () in
-      let parsed = parse_file_legacy caps ~num_domains file file_s rules in
+      let parsed =
+        parse_file_legacy caps ~num_domains ?logs_sink file file_s rules
+      in
       let ast_json = ast_to_yojson parsed.ast in
       let end_time = Unix.gettimeofday () in
       let elapsed_ms = (end_time -. start_time) *. 1000.0 in
@@ -420,32 +469,39 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int) (files : Fpath.t 
   let merged_taint_entries = merge_taint_entries !taint_entries_list in
   (List.rev !asts, merged_taint_entries)
 
-let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int) (folder_path : Fpath.t)
-    (folder_path_s : string) (rules : Rule.t list)
+let parse_folder_ast (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
+    (folder_path : Fpath.t) (folder_path_s : string) (rules : Rule.t list)
     : Y.t list * Taint_serializer.taint_entries_t =
   let files = get_supported_files folder_path in
-  parse_files_ast caps ~num_domains files (Printf.sprintf "from folder: %s" folder_path_s) rules
+  parse_files_ast caps ~num_domains ?logs_sink files
+    (Printf.sprintf "from folder: %s" folder_path_s) rules
 
-let parse_extension_pattern_ast (caps : < Cap.fork >) ~(num_domains : int) (pattern_s : string)
-    (rules : Rule.t list)
+let parse_extension_pattern_ast (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
+    (pattern_s : string) (rules : Rule.t list)
     : Y.t list * Taint_serializer.taint_entries_t =
   let files = expand_extension_pattern pattern_s in
-  parse_files_ast caps ~num_domains files (Printf.sprintf "matching pattern: %s" pattern_s) rules
+  parse_files_ast caps ~num_domains ?logs_sink files
+    (Printf.sprintf "matching pattern: %s" pattern_s) rules
 
 (* Serialize folder processing results to JSON string *)
 let parse_and_serialize_folder (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
     (folder_path : Fpath.t) (folder_path_s : string)
     (rules : Rule.t list) : string =
   let asts, taint_entries =
-    parse_folder_ast caps ~num_domains folder_path folder_path_s rules
+    parse_folder_ast caps ~num_domains ?logs_sink folder_path folder_path_s
+      rules
   in
   serialize_ast_with_taint_to_string asts taint_entries
 
 (* Serialize extension pattern processing results to JSON string *)
 let parse_and_serialize_extension_pattern (caps : < Cap.fork >) ~(num_domains : int)
+    ?(logs_sink : logs_sink option)
     (pattern_s : string) (rules : Rule.t list) : string =
   let asts, taint_entries =
-    parse_extension_pattern_ast caps ~num_domains pattern_s rules
+    parse_extension_pattern_ast caps ~num_domains ?logs_sink pattern_s rules
   in
   serialize_ast_with_taint_to_string asts taint_entries
 
@@ -453,12 +509,13 @@ let parse_and_serialize_extension_pattern (caps : < Cap.fork >) ~(num_domains : 
 let parse_counter = Atomic.make 0
 
 let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(format = `Json) ?(skip_taint_mode = false) (infile : Fpath.t)
-    (infile_s : string) (rules: Rule.t list) : string =
+    ?(format = `Json) ?(skip_taint_mode = false)
+    ?(logs_sink : logs_sink option)
+    (infile : Fpath.t) (infile_s : string) (rules: Rule.t list) : string =
   let parsed =
     if skip_taint_mode then
       parse_file_skip_taint caps ~num_domains infile infile_s rules
-    else parse_file_legacy caps ~num_domains infile infile_s rules
+    else parse_file_legacy caps ~num_domains ?logs_sink infile infile_s rules
   in
   let result =
     match format with
@@ -487,3 +544,38 @@ let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
 let serialize_to_json_file ~(file : Fpath.t) (ast : AST_generic.program) : unit =
   let json_string = serialize_ast_to_json_string ast in
   UFile.write_file ~file json_string
+
+let csv_escape (s : string) : string =
+  let needs_quoting =
+    String.contains s ',' || String.contains s '"'
+    || String.contains s '\n' || String.contains s '\r'
+  in
+  if not needs_quoting then s
+  else
+    let escaped = String.concat "\"\"" (String.split_on_char '"' s) in
+    "\"" ^ escaped ^ "\""
+
+let write_logs_csv (sink : logs_sink) ~(out_csv : Fpath.t) : unit =
+  let buf = Buffer.create 4096 in
+  Buffer.add_string buf "file";
+  List.iter
+    (fun name ->
+      Buffer.add_char buf ',';
+      Buffer.add_string buf (csv_escape name))
+    sink.all_rule_names;
+  Buffer.add_char buf '\n';
+  List.iter
+    (fun (file_s, rule_times) ->
+      let tbl = Hashtbl.create (List.length rule_times) in
+      List.iter (fun (name, t) -> Hashtbl.replace tbl name t) rule_times;
+      Buffer.add_string buf (csv_escape file_s);
+      List.iter
+        (fun name ->
+          Buffer.add_char buf ',';
+          match Hashtbl.find_opt tbl name with
+          | None -> ()
+          | Some t -> Buffer.add_string buf (Printf.sprintf "%.3f" t))
+        sink.all_rule_names;
+      Buffer.add_char buf '\n')
+    (List.rev sink.rows_rev);
+  UFile.write_file ~file:out_csv (Buffer.contents buf)
