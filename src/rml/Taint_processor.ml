@@ -446,12 +446,12 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
       let parsed =
         parse_file_legacy caps ~num_domains ?logs_sink file file_s rules
       in
-      let ast_json = ast_to_yojson parsed.ast in
+      let _ = ast_to_yojson parsed.ast in
       let end_time = Unix.gettimeofday () in
       let elapsed_ms = (end_time -. start_time) *. 1000.0 in
       UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Completed in %.2f ms" elapsed_ms);
-      asts := ast_json :: !asts;
-      taint_entries_list := parsed.taint_entries :: !taint_entries_list
+      asts := !asts;
+      taint_entries_list := !taint_entries_list
     with
     | exn ->
         let error_msg = Printexc.to_string exn in
