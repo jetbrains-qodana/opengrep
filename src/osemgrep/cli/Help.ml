@@ -77,6 +77,7 @@ let print_semgrep_dashdash_help (stdout : Cap.Console.stdout) =
   @{<cyan>lsp@}                  Start the Opengrep LSP server (useful for IDEs)
   @{<cyan>scan@}                 Run Opengrep rules on local folders or files
   @{<cyan>show@}                 Show various types of information
+  @{<cyan>taint@}                Parse files into AST+taint JSON streamed to stdout
   @{<cyan>test@}                 Test the rules
   @{<cyan>validate@}             Validate the rules
 |}
