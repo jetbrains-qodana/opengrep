@@ -53,7 +53,6 @@ type t = {
   do_hover : bool; [@default false]
   pro_intrafile : bool; [@default false]
   handle_ast : string; [@key "handleAST"] [@default "off"]
-  skip_taint : bool option; [@key "skipTaint"] [@default None]
 }
 [@@deriving yojson]
 
@@ -98,6 +97,6 @@ let core_runner_conf_of_t settings : Core_runner.conf =
       time_flag = false;
       inline_metavariables = false;
       taint_intrafile = false;
-      engine_config = { Engine_config.default with skip_taint = settings.skip_taint };
+      engine_config = Engine_config.default;
       sane_stderr = settings.sane_stderr;
     }
