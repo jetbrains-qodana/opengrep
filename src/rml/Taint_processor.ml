@@ -125,7 +125,6 @@ let filter_relevance_conf =
     matching_conf = Match_patterns.default_matching_conf;
     matching_explanations = false;
     filter_irrelevant_rules = Match_env.NoPrefiltering;
-    skip_taint = false;
   }
 
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
@@ -400,12 +399,9 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 let parse_counter = Atomic.make 0
 
 let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(format = `Json) ?(skip_taint_mode = false) (infile : Fpath.t)
+    ?(format = `Json) (infile : Fpath.t)
     (infile_s : string) (rules: Rule.t list) : string =
-  let parsed =
-    if skip_taint_mode then
-      parse_file_skip_taint caps ~num_domains infile infile_s rules
-    else parse_file_legacy caps ~num_domains infile infile_s rules
+  let parsed = parse_file_skip_taint caps ~num_domains infile infile_s rules
   in
   let result =
     match format with
