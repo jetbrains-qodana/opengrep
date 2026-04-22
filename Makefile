@@ -695,9 +695,20 @@ build-core-bytecode:
 	@echo "  bin/opengrep.bc"
 	@echo "Use ocamldebug with: ocamldebug bin/opengrep-core.bc -- <args>"
 
-.PHONY: build-taint-json
-build-taint-json:
+# -----------------------------------------------------------------------------
+# Builds for qodana integration
+# -----------------------------------------------------------------------------
+
+.PHONY: build-taint-json-bc
+build-taint-json-bc:
 	dune build $(BUILD_DEFAULT)/src/rml/Taint_json.bc
 	@mkdir -p bin
 	cp $(BUILD_DEFAULT)/src/rml/Taint_json.bc bin/taint-json.bc
 	@echo "Built bin/taint-json.bc"
+
+.PHONY: build-taint-json
+build-taint-json:
+	dune build $(BUILD_DEFAULT)/src/rml/Taint_json.exe
+	@mkdir -p bin
+	cp $(BUILD_DEFAULT)/src/rml/Taint_json.exe bin/taint-json.exe
+	@echo "Built bin/taint-json.exe"
