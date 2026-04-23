@@ -159,6 +159,18 @@ let filter_relevance_conf =
     skip_taint = false;
   }
 
+(* Build a fresh xconfig that uses [PrefilterWithCache] so that rules whose
+   regex prefilter fails against a file are skipped (same optimization the
+   real scan pipeline uses). The cache memoizes [Analyze_rule.prefilter] per
+   [Rule_ID.t] across files, so it should be created once per scan and
+   reused. *)
+let mk_prefilter_xconfig () : Match_env.xconfig =
+  let cache : Analyze_rule.prefilter_cache =
+    Domain.DLS.new_key (fun () -> Hashtbl.create 1024)
+  in
+  { filter_relevance_conf with
+    filter_irrelevant_rules = Match_env.PrefilterWithCache cache }
+
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
   let formulas = Rule.formulas_of_mode rule.Rule.mode in
@@ -386,7 +398,8 @@ let parse_file_legacy (caps : < Cap.fork >) ~(num_domains : int)
      actually ran on this file. Rules that are skipped (language
      incompatible, irrelevant, SCA/Steps, or that raised) are simply not
      recorded and will render as [-1] in the CSV. *)
-let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
+let time_rules_on_file ~(xconfig : Match_env.xconfig)
+    ~(logs_sink : logs_sink) (infile : Fpath.t)
     (infile_s : string) (rules : Rule.t list) : unit =
   Parsing_init.init ();
   let ast = Parse_target.parse_program infile in
@@ -397,10 +410,19 @@ let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
   Taint_location.set_current_file_path infile_s;
   let xtarget = xtarget_for_ast infile analyzer (lazy (ast, [])) in
 
+  (* Per-rule [paths:] include / exclude globs, matching what the real scan
+     targeting layer does. A rule without a [paths:] field is unconstrained. *)
+  let file_matches_rule_paths (r : Rule.t) : bool =
+    match r.Rule.paths with
+    | None -> true
+    | Some paths -> Filter_target.filter_paths paths infile
+  in
+
   let dedup_rules =
     rules
     |> List.filter (fun (r : Rule.t) ->
-           Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer)
+           Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer
+           && file_matches_rule_paths r)
     |> List_.deduplicate_gen
          ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
   in
@@ -424,8 +446,11 @@ let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
 
   List.iter
     (fun (r : Rule.t) ->
+      (* [is_relevant_rule_for_xtarget] consults [xconfig.filter_irrelevant_rules],
+         so when the caller passes a [PrefilterWithCache] xconfig this correctly
+         skips rules whose regex prefilter rejects the file. *)
       let relevant =
-        Match_rules.is_relevant_rule_for_xtarget r filter_relevance_conf xtarget
+        Match_rules.is_relevant_rule_for_xtarget r xconfig xtarget
       in
       if not relevant then ()
       else
@@ -439,7 +464,7 @@ let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
                 let _m, _e =
                   Match_taint_spec.spec_matches_of_taint_rule
                     ~per_file_formula_cache:formula_cache
-                    filter_relevance_conf infile_s (ast, []) taint_rule
+                    xconfig infile_s (ast, []) taint_rule
                 in
                 ())
         | `Search _ as mode ->
@@ -447,7 +472,7 @@ let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
             run_and_time r (fun () ->
                 let _res =
                   Match_search_mode.check_rule search_rule
-                    (fun xs -> xs) filter_relevance_conf xtarget
+                    (fun xs -> xs) xconfig xtarget
                 in
                 ())
         | `Extract spec ->
@@ -457,7 +482,7 @@ let time_rules_on_file ~(logs_sink : logs_sink) (infile : Fpath.t)
             run_and_time r (fun () ->
                 let _res =
                   Match_search_mode.check_rule search_rule
-                    (fun xs -> xs) filter_relevance_conf xtarget
+                    (fun xs -> xs) xconfig xtarget
                 in
                 ())
         | `SCA _ | `Steps _ -> ())
@@ -535,12 +560,15 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
      all runnable rule modes applied). The normal flow is unchanged. *)
   (match logs_sink with
    | Some sink ->
+       (* Create the prefilter cache / xconfig once so prefilter analysis is
+          memoized across files (same optimization as real scan). *)
+       let xconfig = mk_prefilter_xconfig () in
        List.iter (fun file ->
          try
            let file_s = Fpath.to_string file in
            UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Processing: %s" file_s);
            let start_time = Unix.gettimeofday () in
-           time_rules_on_file ~logs_sink:sink file file_s rules;
+           time_rules_on_file ~xconfig ~logs_sink:sink file file_s rules;
            let end_time = Unix.gettimeofday () in
            let elapsed_ms = (end_time -. start_time) *. 1000.0 in
            UCommon.pr2
