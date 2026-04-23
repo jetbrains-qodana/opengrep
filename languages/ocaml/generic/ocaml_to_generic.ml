@@ -560,7 +560,7 @@ and parameter = function
       | G.PatId (id, _idinfo) -> G.Param (G.param_of_id id)
       | G.PatTyped (G.PatId (id, _idinfo), ty) ->
           G.Param { (G.param_of_id id) with G.ptype = Some ty }
-      | _ -> G.ParamPattern v)
+      | _ -> G.param_pattern v)
   | ParamTodo x -> G.OtherParam (x, [])
 
 and class_field (fld : class_field) : G.field =

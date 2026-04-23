@@ -1792,7 +1792,7 @@ and parameter =
   (* sgrep-ext: note that pname can be a metavariable *)
   | Param of parameter_classic
   (* in OCaml, but also now JS, Python2, Rust *)
-  | ParamPattern of pattern
+  | ParamPattern of pattern * parameter_classic
   (* Both those ParamXxx used to be handled as a ParamClassic with special
    * VariadicXxx attribute in p_attr, but they are used in so many
    * languages that it's better to move then in a separate type.
@@ -2370,6 +2370,24 @@ let param_of_type ?(pattrs = []) ?pdefault ?pname typ =
 
 (* for 'function 0 -> 1 ...' in OCaml or 'do 0 -> 1 ...' in Elixir *)
 let implicit_param_id tk = ("!_implicit_param!", tk)
+
+let implicit_param_classic ?ptype ?pdefault ?(pattrs = []) ?index _tk =
+  let tk = Tok.unsafe_fake_tok "" in
+  let name =
+    match index with
+    | None -> "!!_implicit_param!"
+    | Some i -> Printf.sprintf "!!_implicit_param!_%d" i
+  in
+  {
+    pname = Some (name, tk);
+    ptype;
+    pdefault;
+    pattrs;
+    pinfo = basic_id_info ~hidden:true (Parameter, SId.unsafe_default);
+  }
+
+let param_pattern pat =
+  ParamPattern (pat, implicit_param_classic (Tok.unsafe_fake_tok ""))
 
 (* ------------------------------------------------------------------------- *)
 (* Types *)

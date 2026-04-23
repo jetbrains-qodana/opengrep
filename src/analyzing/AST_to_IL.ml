@@ -1576,7 +1576,7 @@ and parameters params : param list =
   |> List_.map (function
        | G.Param { pname = Some i; pinfo; pdefault; _ } ->
            Param { pname = var_of_id_info i pinfo; pdefault }
-       | G.ParamPattern pat -> PatternParam pat
+       | G.ParamPattern (pat, _) -> PatternParam pat
        | G.ParamReceiver _param ->
            (* TODO: Treat receiver as this parameter *)
            FixmeParam (* TODO *)
