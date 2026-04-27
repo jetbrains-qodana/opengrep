@@ -402,13 +402,22 @@ let time_rules_on_file ~(xconfig : Match_env.xconfig)
     ~(logs_sink : logs_sink) (infile : Fpath.t)
     (infile_s : string) (rules : Rule.t list) : unit =
   Parsing_init.init ();
-  let ast = Parse_target.parse_program infile in
   let lang = Lang.lang_of_filename_exn infile in
   let analyzer = Xlang.of_lang lang in
-  Naming_AST.resolve lang ast;
-  Implicit_return.mark_implicit_return lang ast;
+  (* Use the same parse+resolve+analyses pipeline as the real scan path
+     ([Parse_target.parse_and_resolve_name]). In addition to naming, this
+     runs [Typing.check_program], [Implicit_return.mark_implicit_return],
+     and both flow-insensitive and flow-sensitive constant propagation.
+     Without these passes the AST lacks the information that taint rules
+     rely on to find sources/sinks, so rule timings underestimate real
+     scan dramatically. *)
+  let parse_result = Parse_target.parse_and_resolve_name lang infile in
+  let ast = parse_result.ast in
+  let skipped_tokens = parse_result.skipped_tokens in
   Taint_location.set_current_file_path infile_s;
-  let xtarget = xtarget_for_ast infile analyzer (lazy (ast, [])) in
+  let xtarget =
+    xtarget_for_ast infile analyzer (lazy (ast, skipped_tokens))
+  in
 
   (* Per-rule [paths:] include / exclude globs, matching what the real scan
      targeting layer does. A rule without a [paths:] field is unconstrained. *)
@@ -418,6 +427,9 @@ let time_rules_on_file ~(xconfig : Match_env.xconfig)
     | Some paths -> Filter_target.filter_paths paths infile
   in
 
+  (* Pre-filter by language + paths and dedup by [Rule_ID]. [Match_rules.check]
+     will further filter by the prefilter cache (via [group_rules] ->
+     [is_relevant_rule_for_xtarget]) and drop unsupported/irrelevant modes. *)
   let dedup_rules =
     rules
     |> List.filter (fun (r : Rule.t) ->
@@ -427,68 +439,41 @@ let time_rules_on_file ~(xconfig : Match_env.xconfig)
          ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
   in
 
-  let timings = ref [] in
-  let record (r : Rule.t) ms =
-    let name = Rule_ID.to_string (fst r.Rule.id) in
-    timings := (name, ms) :: !timings
+  (* Drive the exact same pipeline the real scan uses on this file.
+     [Match_rules.check] handles mode dispatch, per-rule
+     [adjust_xconfig_with_rule_options], taint-rule grouping with shared
+     formula cache, timeout wrapping, etc. The returned
+     [matches_single_file] carries per-rule [rule_match_time] values in
+     [p_rule_times] when profiling is enabled - these are the same numbers
+     [opengrep scan --time] reports, so this gives us apples-to-apples
+     measurements. *)
+  Core_profiling.profiling := true;
+  let (result : Core_result.matches_single_file) =
+    try
+      Match_rules.check ~match_hook:(fun _ -> ()) ~timeout:None xconfig
+        dedup_rules xtarget
+    with exn ->
+      UCommon.pr2
+        (Printf.sprintf "[taint-json/logs]   ERROR: %s - %s" infile_s
+           (Printexc.to_string exn));
+      {
+        matches = [];
+        errors = Core_error.ErrorSet.empty;
+        profiling = None;
+        explanations = [];
+      }
   in
-  let run_and_time (r : Rule.t) (f : unit -> unit) : unit =
-    let t0 = Unix.gettimeofday () in
-    (try f ()
-     with exn ->
-       UCommon.pr2
-         (Printf.sprintf "[taint-json/logs]   WARNING: rule %s on %s failed: %s"
-            (Rule_ID.to_string (fst r.Rule.id)) infile_s
-            (Printexc.to_string exn)));
-    let t1 = Unix.gettimeofday () in
-    record r ((t1 -. t0) *. 1000.0)
+  let timings : (string * float) list =
+    match result.profiling with
+    | None -> []
+    | Some p ->
+        (* [rule_match_time] is in seconds; the CSV stores milliseconds. *)
+        p.p_rule_times
+        |> List.map (fun (rp : Core_profiling.rule_profiling) ->
+               ( Rule_ID.to_string rp.rule_id,
+                 rp.rule_match_time *. 1000.0 ))
   in
-
-  List.iter
-    (fun (r : Rule.t) ->
-      (* [is_relevant_rule_for_xtarget] consults [xconfig.filter_irrelevant_rules],
-         so when the caller passes a [PrefilterWithCache] xconfig this correctly
-         skips rules whose regex prefilter rejects the file. *)
-      let relevant =
-        Match_rules.is_relevant_rule_for_xtarget r xconfig xtarget
-      in
-      if not relevant then ()
-      else
-        match r.Rule.mode with
-        | `Taint _ as mode ->
-            let taint_rule : Rule.taint_rule = { r with mode } in
-            run_and_time r (fun () ->
-                let formula_cache =
-                  Formula_cache.mk_specialized_formula_cache [ taint_rule ]
-                in
-                let _m, _e =
-                  Match_taint_spec.spec_matches_of_taint_rule
-                    ~per_file_formula_cache:formula_cache
-                    xconfig infile_s (ast, []) taint_rule
-                in
-                ())
-        | `Search _ as mode ->
-            let search_rule : Rule.search_rule = { r with mode } in
-            run_and_time r (fun () ->
-                let _res =
-                  Match_search_mode.check_rule search_rule
-                    (fun xs -> xs) xconfig xtarget
-                in
-                ())
-        | `Extract spec ->
-            let search_rule : Rule.search_rule =
-              { r with mode = `Search spec.Rule.formula }
-            in
-            run_and_time r (fun () ->
-                let _res =
-                  Match_search_mode.check_rule search_rule
-                    (fun xs -> xs) xconfig xtarget
-                in
-                ())
-        | `SCA _ | `Steps _ -> ())
-    dedup_rules;
-
-  logs_sink.rows_rev <- (infile_s, !timings) :: logs_sink.rows_rev
+  logs_sink.rows_rev <- (infile_s, timings) :: logs_sink.rows_rev
 
 let parse_file_skip_taint (caps : < Cap.fork >) ~(num_domains : int)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
