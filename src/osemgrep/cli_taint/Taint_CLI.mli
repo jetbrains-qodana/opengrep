@@ -8,6 +8,7 @@ type conf = {
   rules_file : string option;
   format : [ `Json | `Binary ];
   jobs : int;
+  with_diagnostics : bool;
 }
 
 (* entry point *)

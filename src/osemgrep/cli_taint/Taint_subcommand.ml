@@ -8,6 +8,9 @@
  * encoded binary) results to stdout.
  *)
 
+module Y = Yojson.Safe
+module Out = Semgrep_output_v1_t
+
 (*****************************************************************************)
 (* Types and constants *)
 (*****************************************************************************)
@@ -98,6 +101,113 @@ let load_rules (conf : Taint_CLI.conf) : Rule.t list =
   else List.concat_map (fun p -> load_rules_from_path (Fpath.v p)) paths
 
 (*****************************************************************************)
+(* Diagnostics rendering (LSP-style JSON) *)
+(*****************************************************************************)
+
+(* Mirror of Convert_utils.convert_severity / DiagnosticSeverity in the LSP
+ * spec. We avoid depending on the LSP library here so that this subcommand
+ * stays small and stdin/stdout-only. *)
+let lsp_severity_of_match_severity (s : Out.match_severity) : int =
+  match s with
+  | `Error
+  | `Critical
+  | `High ->
+      1
+  | `Warning
+  | `Medium ->
+      2
+  | `Info
+  | `Low
+  | `Experiment
+  | `Inventory ->
+      3
+
+let position_to_yojson (p : Out.position) : Y.t =
+  (* LSP uses 0-based line/character; opengrep positions are 1-based. *)
+  `Assoc
+    [ ("line", `Int (p.line - 1));
+      ("character", `Int (p.col - 1)) ]
+
+let range_of_cli_match (m : Out.cli_match) : Y.t =
+  `Assoc
+    [ ("start", position_to_yojson m.start);
+      ("end", position_to_yojson m.end_) ]
+
+let lsp_diagnostic_of_cli_match (m : Out.cli_match) : Y.t =
+  let check_id_str = Rule_ID.to_string m.check_id in
+  let message =
+    if String.equal m.extra.message "" then
+      Printf.sprintf "Semgrep found: %s" check_id_str
+    else m.extra.message
+  in
+  let metadata = (m.extra.metadata :> Y.t) in
+  let shortlink =
+    match metadata with
+    | `Assoc _ ->
+        metadata |> Y.Util.member "shortlink" |> Y.Util.to_string_option
+    | _ -> None
+  in
+  let base =
+    [ ("range", range_of_cli_match m);
+      ("severity", `Int (lsp_severity_of_match_severity m.extra.severity));
+      ("code", `String check_id_str);
+      ("source", `String "Semgrep");
+      ("message", `String message) ]
+  in
+  let fields =
+    match shortlink with
+    | None -> base
+    | Some s ->
+        base @ [ ("codeDescription", `Assoc [ ("href", `String s) ]) ]
+  in
+  `Assoc fields
+
+(* Convert a parsed_file's Core_match list into a [cli_match list] following
+ * the same conversion path that 'opengrep scan' uses (Core_runner.mk_result
+ * + Output.preprocess_result), so message templating, severity overrides
+ * and metavar interpolation match what scan would emit.
+ *
+ * [rules] is the full rule set passed to the engine (used for hrules
+ * lookup during cli_match construction). *)
+let cli_matches_of_parsed_file ~(rules : Rule.t list)
+    (parsed : Taint_processor.parsed_file) : Out.cli_match list =
+  let processed_matches =
+    parsed.matches |> List_.map Core_result.mk_processed_match
+  in
+  let scanned = [ Target.mk_target parsed.xlang parsed.file ] in
+  let core_result : Core_result.t =
+    {
+      processed_matches;
+      errors = parsed.errors;
+      skipped_targets = [];
+      skipped_rules = [];
+      valid_rules = rules;
+      rules_with_targets = rules;
+      scanned;
+      profiling = None;
+      explanations = None;
+      rules_by_engine = [];
+      interfile_languages_used = [];
+    }
+  in
+  let runner_result = Core_runner.mk_result rules core_result in
+  let cli_output = Output.preprocess_result ~fixed_lines:false runner_result in
+  cli_output.results
+
+let mk_render_diagnostics ~(rules : Rule.t list) :
+    Taint_processor.parsed_file -> Y.t =
+ fun parsed ->
+  match cli_matches_of_parsed_file ~rules parsed with
+  | exception exn ->
+      UCommon.pr2
+        (Printf.sprintf
+           "[taint]   WARNING: failed to render diagnostics for %s: %s"
+           (Fpath.to_string parsed.file)
+           (Printexc.to_string exn));
+      `List []
+  | matches -> `List (List_.map lsp_diagnostic_of_cli_match matches)
+
+(*****************************************************************************)
 (* Main logic *)
 (*****************************************************************************)
 
@@ -119,9 +229,15 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
     UCommon.pr2 "[taint] No files provided on stdin";
     Exit_code.ok ~__LOC__)
   else (
+    let render_diagnostics =
+      if conf.with_diagnostics then Some (mk_render_diagnostics ~rules)
+      else None
+    in
     Taint_processor.parse_files_ast
       (caps :> < Cap.fork >)
-      ~num_domains:conf.jobs ~format:conf.format files "" rules;
+      ~num_domains:conf.jobs ~format:conf.format
+      ~with_diagnostics:conf.with_diagnostics ?render_diagnostics
+      files "" rules;
     Exit_code.ok ~__LOC__)
 
 (*****************************************************************************)
