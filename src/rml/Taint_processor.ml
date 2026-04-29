@@ -34,7 +34,14 @@ let base64_encode (data : string) : string =
 type parsed_file = {
   ast : AST_generic.program;
   lang : Lang.t;
+  xlang : Xlang.t;
+  file : Fpath.t;
   taint_entries : Taint_serializer.taint_entries_t;
+  (* Empty unless [parse_file] was called with [~with_diagnostics:true]. *)
+  matches : Core_match.t list;
+  (* Errors raised by the search/taint engine. Empty unless [with_diagnostics]
+   * was true. *)
+  errors : Core_error.t list;
 }
 
 let serialize_ast_to_json_string (ast : AST_generic.program) : string =
@@ -73,7 +80,8 @@ let skip_taint_large_file_bytes = 500_000
 
 let stdout_mutex = Mutex.create ()
 
-let write_result_to_stdout ~(format : ast_format) (file_s : string)
+let write_result_to_stdout ~(format : ast_format)
+    ?(render_diagnostics : (parsed_file -> Y.t) option) (file_s : string)
     (parsed : parsed_file) : unit =
   let data =
     match format with
@@ -82,9 +90,15 @@ let write_result_to_stdout ~(format : ast_format) (file_s : string)
     | `Binary ->
         serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
   in
-  let line =
-    Y.to_string (`Assoc [ ("file", `String file_s); ("data", data) ])
+  let base_fields =
+    [ ("file", `String file_s); ("data", data) ]
   in
+  let fields =
+    match render_diagnostics with
+    | None -> base_fields
+    | Some render -> base_fields @ [ ("diagnostics", render parsed) ]
+  in
+  let line = Y.to_string (`Assoc fields) in
   Mutex.lock stdout_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
     output_string stdout line;
@@ -117,15 +131,32 @@ let split_into_chunks n lst =
         Array.to_list (Array.sub a lo (hi - lo)))
     |> List.filter (fun c -> c <> [])
 
-let filter_relevance_conf =
+(* Per-domain regexp prefilter cache shared across all files processed by
+ * that domain. This mirrors what Core_scan.scan_exn does: without it, every
+ * rule in the rule set is evaluated against every file, which is the main
+ * reason 'opengrep scan' is dramatically faster than a naive per-file
+ * Match_rules.check call. The Hashtbl behind the DLS key memoizes the
+ * compiled per-rule prefilter regex, keyed by Rule_ID. *)
+let prefilter_cache_dls : Analyze_rule.prefilter_cache =
+  Domain.DLS.new_key (fun () -> Hashtbl.create 1024)
+
+let xconfig_with_prefilter_cache : Match_env.xconfig =
   {
     Match_env.config = Rule_options.default;
     equivs = [];
     nested_formula = false;
     matching_conf = Match_patterns.default_matching_conf;
     matching_explanations = false;
-    filter_irrelevant_rules = Match_env.NoPrefiltering;
+    filter_irrelevant_rules =
+      Match_env.PrefilterWithCache prefilter_cache_dls;
   }
+
+(* Backwards-compatible alias for callers that still want the
+ * unprefiltered config (e.g. nested formula evaluation paths or any
+ * code that pre-filters rules itself). *)
+let filter_relevance_conf =
+  { xconfig_with_prefilter_cache with
+    filter_irrelevant_rules = Match_env.NoPrefiltering }
 
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
@@ -259,7 +290,53 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
+(* Run the search/taint rule engine on [xtarget] for the rules compatible
+ * with the file's analyzer. Returns the matches and errors so callers can
+ * convert them into diagnostics. Skipped (returns empty) when no rules
+ * remain after the language compatibility filter.
+ *
+ * We deliberately do *not* call [summarize_prefilter_rules] here:
+ * [Match_rules.check] already does per-rule regex prefiltering with a
+ * shared cache (see [xconfig_with_prefilter_cache]). The engine's filter
+ * is strictly more powerful than [summarize_prefilter_rules] (it combines
+ * all subformulas of a rule into a single prefilter formula and caches
+ * the compiled regex once per rule across the whole run), so doing both
+ * just doubles the work. *)
+let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list) :
+    Core_match.t list * Core_error.t list =
+  let analyzer = xtarget.Xtarget.xlang in
+  let compatible_rules =
+    rules
+    |> List.filter (fun (r : Rule.t) ->
+           Xlang.is_compatible ~require:analyzer ~provide:r.Rule.target_analyzer)
+    |> List_.deduplicate_gen
+         ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
+  in
+  if compatible_rules = [] then ([], [])
+  else
+    try
+      let res =
+        Match_rules.check
+          ~match_hook:(fun _ -> ())
+          ~timeout:None
+          xconfig_with_prefilter_cache
+          compatible_rules
+          xtarget
+      in
+      (res.matches, Core_error.ErrorSet.elements res.errors)
+    with
+    | Match_rules.File_timeout rule_ids ->
+        UCommon.pr2
+          (Printf.sprintf
+             "[ir-pipeline]   WARNING: file timeout while computing \
+              diagnostics, rules: %s"
+             (rule_ids
+              |> List_.map Rule_ID.to_string
+              |> String.concat ","));
+        ([], [])
+
 let parse_file (caps : < Cap.fork >) ~(num_domains : int)
+    ?(with_diagnostics = false)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
@@ -269,8 +346,20 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
+  let xtarget =
+    xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
+  in
+  let mk_parsed ?(taint_entries = empty_taint_entries) ?(matches = [])
+      ?(errors = []) () =
+    { ast; lang; xlang = analyzer; file = infile; taint_entries; matches;
+      errors }
+  in
+  let matches, errors =
+    if with_diagnostics then run_rules_engine_for_diagnostics xtarget rules
+    else ([], [])
+  in
   if file_size_bytes >= skip_taint_large_file_bytes then
-    { ast; lang; taint_entries = empty_taint_entries }
+    mk_parsed ~matches ~errors ()
   else
     let taint_rules =
       rules
@@ -283,12 +372,8 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       |> List_.deduplicate_gen
            ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
     in
-    if taint_rules = [] then
-      { ast; lang; taint_entries = empty_taint_entries }
+    if taint_rules = [] then mk_parsed ~matches ~errors ()
     else
-      let xtarget =
-        xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
-      in
       let taint_rules =
         summarize_prefilter_rules
           ~content:(Lazy.force xtarget.Xtarget.lazy_content)
@@ -301,16 +386,16 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
                | `Taint _ as mode -> Some { r with mode }
                | _ -> None)
       in
-      {
-        ast;
-        lang;
-        taint_entries =
-          collect_taint_entries caps ~num_domains ~shared_formula_cache:true
-            ~infile_s ~ast taint_rules;
-      }
+      let taint_entries =
+        collect_taint_entries caps ~num_domains ~shared_formula_cache:true
+          ~infile_s ~ast taint_rules
+      in
+      mk_parsed ~taint_entries ~matches ~errors ()
 
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
-    ~(format : ast_format) (files : Fpath.t list)
+    ~(format : ast_format) ?(with_diagnostics = false)
+    ?(render_diagnostics : (parsed_file -> Y.t) option)
+    (files : Fpath.t list)
     (description : string) (rules : Rule.t list) : unit =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
     (List.length files) description);
@@ -328,8 +413,10 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    let parsed = parse_file caps ~num_domains:1 file file_s rules in
-    write_result_to_stdout ~format file_s parsed
+    let parsed =
+      parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
+    in
+    write_result_to_stdout ~format ?render_diagnostics file_s parsed
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =

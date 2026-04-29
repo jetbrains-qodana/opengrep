@@ -17,6 +17,7 @@ type conf = {
   rules_file : string option;
   format : [ `Json | `Binary ];
   jobs : int;
+  with_diagnostics : bool;
 }
 
 (*****************************************************************************)
@@ -71,14 +72,26 @@ let o_jobs : int Term.t =
   in
   Arg.value (Arg.opt Arg.int (Domainslib_.get_cpu_count ()) info)
 
+let o_with_diagnostics : bool Term.t =
+  let info =
+    Arg.info [ "with-diagnostics" ]
+      ~doc:
+        "In addition to the AST and taint information, run the search/taint \
+         rule engine on each file and emit LSP-style diagnostics under a \
+         $(b,diagnostics) field of every line of output."
+  in
+  Arg.value (Arg.flag info)
+
 (*************************************************************************)
 (* Command-line parsing: turn argv into conf *)
 (*************************************************************************)
 let cmdline_term : conf Term.t =
-  let combine format jobs rules_file rules_path =
-    { rules_path; rules_file; format; jobs }
+  let combine format jobs rules_file rules_path with_diagnostics =
+    { rules_path; rules_file; format; jobs; with_diagnostics }
   in
-  Term.(const combine $ o_format $ o_jobs $ o_rules_file $ o_rules)
+  Term.(
+    const combine $ o_format $ o_jobs $ o_rules_file $ o_rules
+    $ o_with_diagnostics)
 
 let parse_argv (argv : string array) : conf =
   let cmd : conf Cmd.t = Cmd.v cmdline_info cmdline_term in
