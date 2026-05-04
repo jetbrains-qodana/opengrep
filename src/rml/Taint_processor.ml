@@ -80,15 +80,60 @@ let skip_taint_large_file_bytes = 500_000
 
 let stdout_mutex = Mutex.create ()
 
+(*****************************************************************************)
+(* Optional per-file timing diagnostics (opt-in via OPENGREP_TAINT_PROFILE) *)
+(*****************************************************************************)
+(* Lightweight, per-file mutable timing record. Filled in by [parse_file] and
+ * [write_result_to_stdout] when [~timings] is supplied. All numbers are
+ * milliseconds. *)
+type timings = {
+  mutable parse_ms : float;
+  mutable engine_ms : float;
+  mutable taint_entries_ms : float;
+  mutable ast_serialize_ms : float;
+  mutable output_serialize_ms : float;
+  mutable diag_render_ms : float;
+  mutable stdout_ms : float;
+}
+
+let mk_timings () =
+  { parse_ms = 0.; engine_ms = 0.; taint_entries_ms = 0.;
+    ast_serialize_ms = 0.; output_serialize_ms = 0.;
+    diag_render_ms = 0.; stdout_ms = 0. }
+
+let profile_enabled : bool =
+  match Sys.getenv_opt "OPENGREP_TAINT_PROFILE" with
+  | Some v -> (
+      match String.lowercase_ascii v with
+      | "1" | "true" | "yes" | "on" -> true
+      | _ -> false)
+  | None -> false
+
+(* Time a thunk and add the elapsed milliseconds to [field] of [t]. When
+ * [t] is [None], just runs the thunk with no timing overhead. *)
+let time_to (t : timings option) (set : timings -> float -> unit)
+    (f : unit -> 'a) : 'a =
+  match t with
+  | None -> f ()
+  | Some t ->
+      let t0 = Unix.gettimeofday () in
+      let result = f () in
+      let dt = (Unix.gettimeofday () -. t0) *. 1000. in
+      set t dt;
+      result
+
 let write_result_to_stdout ~(format : ast_format)
-    ?(render_diagnostics : (parsed_file -> Y.t) option) (file_s : string)
+    ?(render_diagnostics : (parsed_file -> Y.t) option)
+    ?(timings : timings option)
+    (file_s : string)
     (parsed : parsed_file) : unit =
   let data =
-    match format with
-    | `Json ->
-        serialize_ast_with_taint_to_string parsed.ast parsed.taint_entries
-    | `Binary ->
-        serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
+    time_to timings (fun t dt -> t.ast_serialize_ms <- dt) (fun () ->
+      match format with
+      | `Json ->
+          serialize_ast_with_taint_to_string parsed.ast parsed.taint_entries
+      | `Binary ->
+          serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries)
   in
   let base_fields =
     [ ("file", `String file_s); ("data", data) ]
@@ -96,14 +141,23 @@ let write_result_to_stdout ~(format : ast_format)
   let fields =
     match render_diagnostics with
     | None -> base_fields
-    | Some render -> base_fields @ [ ("diagnostics", render parsed) ]
+    | Some render ->
+        let diag =
+          time_to timings (fun t dt -> t.diag_render_ms <- dt) (fun () ->
+            render parsed)
+        in
+        base_fields @ [ ("diagnostics", diag) ]
   in
-  let line = Y.to_string (`Assoc fields) in
-  Mutex.lock stdout_mutex;
-  Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
-    output_string stdout line;
-    output_char stdout '\n';
-    flush stdout)
+  let line =
+    time_to timings (fun t dt -> t.output_serialize_ms <- dt) (fun () ->
+      Y.to_string (`Assoc fields))
+  in
+  time_to timings (fun t dt -> t.stdout_ms <- dt) (fun () ->
+    Mutex.lock stdout_mutex;
+    Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
+      output_string stdout line;
+      output_char stdout '\n';
+      flush stdout))
 
 
 (* Extract deduplication key for taint entries (sources/sinks/sanitizers) *)
@@ -336,15 +390,19 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
         ([], [])
 
 let parse_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(with_diagnostics = false)
+    ?(with_diagnostics = false) ?(timings : timings option)
     (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
-  let parse_result = Parse_target.just_parse_with_lang lang infile in
-  let ast = parse_result.ast in
+  let ast, parse_result =
+    time_to timings (fun t dt -> t.parse_ms <- dt) (fun () ->
+      let parse_result = Parse_target.just_parse_with_lang lang infile in
+      let ast = parse_result.ast in
+      Naming_AST.resolve lang ast;
+      Implicit_return.mark_implicit_return lang ast;
+      (ast, parse_result))
+  in
   let analyzer = Xlang.of_lang lang in
-  Naming_AST.resolve lang ast;
-  Implicit_return.mark_implicit_return lang ast;
   let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
   let xtarget =
     xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
@@ -355,7 +413,9 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       errors }
   in
   let matches, errors =
-    if with_diagnostics then run_rules_engine_for_diagnostics xtarget rules
+    if with_diagnostics then
+      time_to timings (fun t dt -> t.engine_ms <- dt) (fun () ->
+        run_rules_engine_for_diagnostics xtarget rules)
     else ([], [])
   in
   if file_size_bytes >= skip_taint_large_file_bytes then
@@ -387,8 +447,9 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
                | _ -> None)
       in
       let taint_entries =
-        collect_taint_entries caps ~num_domains ~shared_formula_cache:true
-          ~infile_s ~ast taint_rules
+        time_to timings (fun t dt -> t.taint_entries_ms <- dt) (fun () ->
+          collect_taint_entries caps ~num_domains ~shared_formula_cache:true
+            ~infile_s ~ast taint_rules)
       in
       mk_parsed ~taint_entries ~matches ~errors ()
 
@@ -411,12 +472,49 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
   in
 
+  (* Aggregator (totals across all files) used only when profiling is on.
+   * Guarded by a mutex because [process_file] runs on multiple domains. *)
+  let agg = mk_timings () in
+  let agg_mutex = Mutex.create () in
+  let format_per_file_line ~file_s ~total_ms (t : timings) =
+    Printf.sprintf
+      "[ir-prof] %s  total=%.1fms parse=%.1fms engine=%.1fms taint_entries=%.1fms \
+       ast_ser=%.1fms out_ser=%.1fms diag=%.1fms stdout=%.1fms"
+      file_s total_ms t.parse_ms t.engine_ms t.taint_entries_ms
+      t.ast_serialize_ms t.output_serialize_ms t.diag_render_ms t.stdout_ms
+  in
+
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    let parsed =
-      parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
-    in
-    write_result_to_stdout ~format ?render_diagnostics file_s parsed
+    if profile_enabled then begin
+      let timings = mk_timings () in
+      let t0 = Unix.gettimeofday () in
+      let parsed =
+        parse_file caps ~num_domains:1 ~with_diagnostics ~timings file file_s
+          rules
+      in
+      write_result_to_stdout ~format ?render_diagnostics ~timings file_s parsed;
+      let total_ms = (Unix.gettimeofday () -. t0) *. 1000. in
+      Mutex.lock agg_mutex;
+      Fun.protect ~finally:(fun () -> Mutex.unlock agg_mutex) (fun () ->
+        agg.parse_ms <- agg.parse_ms +. timings.parse_ms;
+        agg.engine_ms <- agg.engine_ms +. timings.engine_ms;
+        agg.taint_entries_ms <-
+          agg.taint_entries_ms +. timings.taint_entries_ms;
+        agg.ast_serialize_ms <-
+          agg.ast_serialize_ms +. timings.ast_serialize_ms;
+        agg.output_serialize_ms <-
+          agg.output_serialize_ms +. timings.output_serialize_ms;
+        agg.diag_render_ms <- agg.diag_render_ms +. timings.diag_render_ms;
+        agg.stdout_ms <- agg.stdout_ms +. timings.stdout_ms;
+        UCommon.pr2 (format_per_file_line ~file_s ~total_ms timings))
+    end
+    else begin
+      let parsed =
+        parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
+      in
+      write_result_to_stdout ~format ?render_diagnostics file_s parsed
+    end
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
@@ -443,8 +541,48 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     success_count (List.length files) error_count);
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))))
-
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))));
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Prefilter cache: %d entries" (Hashtbl.length (Domain.DLS.get prefilter_cache_dls)));
+  if profile_enabled then begin
+    let n = float_of_int (max 1 success_count) in
+    let sum_ms =
+      agg.parse_ms +. agg.engine_ms +. agg.taint_entries_ms
+      +. agg.ast_serialize_ms +. agg.output_serialize_ms +. agg.diag_render_ms
+      +. agg.stdout_ms
+    in
+    let pct x = if sum_ms > 0. then 100. *. x /. sum_ms else 0. in
+    UCommon.pr2 "[ir-prof] === aggregate (sum across all files, ms) ===";
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   parse          : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.parse_ms (agg.parse_ms /. n) (pct agg.parse_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   engine         : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.engine_ms (agg.engine_ms /. n) (pct agg.engine_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   taint_entries  : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.taint_entries_ms (agg.taint_entries_ms /. n)
+      (pct agg.taint_entries_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   ast_serialize  : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.ast_serialize_ms (agg.ast_serialize_ms /. n)
+      (pct agg.ast_serialize_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   output_serialize: %9.1f  (avg %6.2f, %4.1f%%)"
+      agg.output_serialize_ms (agg.output_serialize_ms /. n)
+      (pct agg.output_serialize_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   diag_render    : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.diag_render_ms (agg.diag_render_ms /. n) (pct agg.diag_render_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   stdout         : %10.1f  (avg %6.2f, %4.1f%%)"
+      agg.stdout_ms (agg.stdout_ms /. n) (pct agg.stdout_ms));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   sum of phases  : %10.1f  (avg %6.2f)"
+      sum_ms (sum_ms /. n));
+    UCommon.pr2 (Printf.sprintf
+      "[ir-prof]   wall-clock     : %10.1f  (avg %6.2f)"
+      glob_elapsed_ms (glob_elapsed_ms /. n))
+  end
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0
 
