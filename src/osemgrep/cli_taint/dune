@@ -7,13 +7,10 @@
   (libraries
     cmdliner
     commons
-    yojson
 
     osemgrep_core
     parallelism
 
-    semgrep.core_runner
-    semgrep.osemgrep_reporting
     semgrep.rml
   )
  (preprocess

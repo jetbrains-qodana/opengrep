@@ -81,8 +81,8 @@ let skip_taint_large_file_bytes = 500_000
 let stdout_mutex = Mutex.create ()
 
 let write_result_to_stdout ~(format : ast_format)
-    ?(render_diagnostics : (parsed_file -> Y.t) option) (file_s : string)
-    (parsed : parsed_file) : unit =
+    ~(with_diagnostics : bool) ~(rules : Rule.t list)
+    (file_s : string) (parsed : parsed_file) : unit =
   let data =
     match format with
     | `Json ->
@@ -94,9 +94,13 @@ let write_result_to_stdout ~(format : ast_format)
     [ ("file", `String file_s); ("data", data) ]
   in
   let fields =
-    match render_diagnostics with
-    | None -> base_fields
-    | Some render -> base_fields @ [ ("diagnostics", render parsed) ]
+    if not with_diagnostics then base_fields
+    else
+      let diag =
+        Taint_serializer.render_lsp_diagnostics ~rules ~file:parsed.file
+          ~xlang:parsed.xlang ~matches:parsed.matches ~errors:parsed.errors
+      in
+      base_fields @ [ ("diagnostics", diag) ]
   in
   let line = Y.to_string (`Assoc fields) in
   Mutex.lock stdout_mutex;
@@ -394,7 +398,6 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
 
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     ~(format : ast_format) ?(with_diagnostics = false)
-    ?(render_diagnostics : (parsed_file -> Y.t) option)
     (files : Fpath.t list)
     (description : string) (rules : Rule.t list) : unit =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
@@ -416,7 +419,7 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     let parsed =
       parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
     in
-    write_result_to_stdout ~format ?render_diagnostics file_s parsed
+    write_result_to_stdout ~format ~with_diagnostics ~rules file_s parsed
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =

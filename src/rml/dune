@@ -9,6 +9,9 @@
   yojson
   semgrep.tainting
   semgrep.core_scan
+  ; for the LSP-style diagnostics renderer in Taint_serializer.
+  semgrep.core_runner
+  semgrep.osemgrep_reporting
   parallelism
   semgrep.memory_release
  ))
