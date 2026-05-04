@@ -355,7 +355,7 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       errors }
   in
   let matches, errors =
-    if with_diagnostics then run_rules_engine_for_diagnostics xtarget rules
+    if with_diagnostics && file_size_bytes < skip_taint_large_file_bytes then run_rules_engine_for_diagnostics xtarget rules
     else ([], [])
   in
   if file_size_bytes >= skip_taint_large_file_bytes then
