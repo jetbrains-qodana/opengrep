@@ -102,7 +102,8 @@ let position_to_yojson (p : Out.position) : Y.t =
   (* LSP uses 0-based line/character; opengrep positions are 1-based. *)
   `Assoc
     [ ("line", `Int (p.line - 1));
-      ("character", `Int (p.col - 1)) ]
+      ("character", `Int (p.col - 1));
+      ("offset", `Int p.offset) ]
 
 let range_of_cli_match (m : Out.cli_match) : Y.t =
   `Assoc
