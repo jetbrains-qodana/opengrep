@@ -349,7 +349,6 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
   let analyzer = Xlang.of_lang lang in
   Naming_AST.resolve lang ast;
   Implicit_return.mark_implicit_return lang ast;
-  let file_size_bytes = (Unix.stat infile_s).Unix.st_size in
   let xtarget =
     xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
   in
@@ -359,42 +358,39 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       errors }
   in
   let matches, errors =
-    if with_diagnostics && file_size_bytes < skip_taint_large_file_bytes then run_rules_engine_for_diagnostics xtarget rules
+    if with_diagnostics then run_rules_engine_for_diagnostics xtarget rules
     else ([], [])
   in
-  if file_size_bytes >= skip_taint_large_file_bytes then
-    mk_parsed ~matches ~errors ()
+  let taint_rules =
+    rules
+    |> List.filter (fun (r : Rule.t) ->
+            Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer
+            &&
+            match r.Rule.mode with
+            | `Taint _ -> true
+            | _ -> false)
+    |> List_.deduplicate_gen
+          ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
+  in
+  if taint_rules = [] then mk_parsed ~matches ~errors ()
   else
     let taint_rules =
-      rules
-      |> List.filter (fun (r : Rule.t) ->
-             Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer
-             &&
-             match r.Rule.mode with
-             | `Taint _ -> true
-             | _ -> false)
-      |> List_.deduplicate_gen
-           ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
-    in
-    if taint_rules = [] then mk_parsed ~matches ~errors ()
-    else
-      let taint_rules =
-        summarize_prefilter_rules
-          ~content:(Lazy.force xtarget.Xtarget.lazy_content)
-          taint_rules
-      in
-      let taint_rules =
+      summarize_prefilter_rules
+        ~content:(Lazy.force xtarget.Xtarget.lazy_content)
         taint_rules
-        |> List.filter_map (fun r ->
-               match r.Rule.mode with
-               | `Taint _ as mode -> Some { r with mode }
-               | _ -> None)
-      in
-      let taint_entries =
-        collect_taint_entries caps ~num_domains ~shared_formula_cache:true
-          ~infile_s ~ast taint_rules
-      in
-      mk_parsed ~taint_entries ~matches ~errors ()
+    in
+    let taint_rules =
+      taint_rules
+      |> List.filter_map (fun r ->
+              match r.Rule.mode with
+              | `Taint _ as mode -> Some { r with mode }
+              | _ -> None)
+    in
+    let taint_entries =
+      collect_taint_entries caps ~num_domains ~shared_formula_cache:true
+        ~infile_s ~ast taint_rules
+    in
+    mk_parsed ~taint_entries ~matches ~errors ()
 
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     ~(format : ast_format) ?(with_diagnostics = false)
@@ -416,10 +412,12 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
 
   let process_file (file : Fpath.t) =
     let file_s = Fpath.to_string file in
-    let parsed =
-      parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
-    in
-    write_result_to_stdout ~format ~with_diagnostics ~rules file_s parsed
+    if (Unix.stat file_s).Unix.st_size < skip_taint_large_file_bytes then
+      let parsed =
+        parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
+      in
+      write_result_to_stdout ~format ~with_diagnostics ~rules file_s parsed
+    else () 
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
