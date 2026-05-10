@@ -97,7 +97,7 @@ let write_result_to_stdout ~(format : ast_format)
     if not with_diagnostics then base_fields
     else
       let diag =
-        Taint_serializer.render_lsp_diagnostics ~rules ~file:parsed.file
+        Diagnostics_renderer.render_lsp_diagnostics ~rules ~file:parsed.file
           ~xlang:parsed.xlang ~matches:parsed.matches ~errors:parsed.errors
       in
       base_fields @ [ ("diagnostics", diag) ]
