@@ -123,25 +123,22 @@ let xconfig_with_prefilter_cache : Match_env.xconfig =
  * - [search_rules] are all rules whose [target_analyzer] is compatible with
  *   the file's analyzer, deduplicated by Rule_ID. This is what
  *   [Match_rules.check] (search-engine) wants.
- * - [taint_rules] is the subset of [search_rules] that have a [`Taint] mode,
- *   also deduplicated by Rule_ID. Kept as [Rule.t list] (rather than
- *   [Rule.taint_rule list]) so it can flow through [summarize_prefilter_rules]
- *   without a round-trip cast; the refinement to [Rule.taint_rule] happens
- *   right before [collect_taint_entries] is called.
+ * - [taint_rules] is the [`Taint]-mode subset, refined to [Rule.taint_rule]
+ *   so the engine API can be called directly without a round-trip cast.
  *
  * Computing this once per (analyzer, rules) instead of three times per file
  * (the previous shape) turns O(files * rules) work into O(distinct_langs *
  * rules + files), which matters for large rulesets and many files. *)
 type analyzer_rules = {
   search_rules : Rule.t list;
-  taint_rules : Rule.t list;
+  taint_rules : Rule.taint_rule list;
 }
 
 let classify_rules_for_analyzer ~(analyzer : Xlang.t) (rules : Rule.t list) :
     analyzer_rules =
   let seen = Hashtbl.create 64 in
   let search_acc = ref [] in
-  let taint_acc = ref [] in
+  let taint_acc : Rule.taint_rule list ref = ref [] in
   rules |> List.iter (fun (r : Rule.t) ->
     if Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer then begin
       let id = Rule_ID.to_string (fst r.Rule.id) in
@@ -149,39 +146,34 @@ let classify_rules_for_analyzer ~(analyzer : Xlang.t) (rules : Rule.t list) :
         Hashtbl.add seen id ();
         search_acc := r :: !search_acc;
         match r.Rule.mode with
-        | `Taint _ -> taint_acc := r :: !taint_acc
+        | `Taint _ as mode ->
+            taint_acc := { r with mode } :: !taint_acc
         | _ -> ()
       end
     end);
   { search_rules = List.rev !search_acc;
     taint_rules = List.rev !taint_acc }
 
-let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
-    [ `Pass | `Reject | `Unknown ] =
-  let formulas = Rule.formulas_of_mode rule.Rule.mode in
-  let rec loop saw_extractable = function
-    | [] -> if saw_extractable then `Reject else `Unknown
-    | formula :: rest -> (
-        match
-          Analyze_rule.regexp_prefilter_of_formula ~xlang:rule.target_analyzer
-            formula
-        with
-        | None -> `Unknown
-        | Some (_prefilter_formula, prefilter) ->
-            if prefilter content then `Pass else loop true rest)
-  in
-  loop false formulas
-
-let summarize_prefilter_rules ~(content : string) (rules : Rule.t list) : Rule.t list =
-  List.fold_left
-    (fun keep_rules (rule : Rule.t) ->
-      match classify_rule_for_ast_prefilter ~content rule with
-      | `Pass
-      | `Unknown ->
-          rule :: keep_rules
-      | `Reject -> keep_rules)
-    [] rules
-  |> List.rev
+(* Drop taint rules whose regexp prefilter rejects [content]. Keeps order.
+ *
+ * Delegates to [Analyze_rule.regexp_prefilter_of_rule], which builds a
+ * single combined-formula regex per rule and memoises it through
+ * [prefilter_cache_dls]. The same cache backs [Match_rules.check]'s
+ * per-rule prefilter (see [is_relevant_rule_for_xtarget] in [Match_rules.ml]),
+ * so each rule's regex is compiled at most once per domain across the whole
+ * batch, regardless of how many files it's checked against and whether it's
+ * also exercised on the search path. A [None] result means no extractable
+ * prefilter; we conservatively keep the rule in that case. *)
+let prefilter_taint_rules ~(content : string)
+    (rules : Rule.taint_rule list) : Rule.taint_rule list =
+  rules
+  |> List.filter (fun r ->
+         match
+           Analyze_rule.regexp_prefilter_of_rule
+             ~cache:(Some prefilter_cache_dls) (r :> Rule.t)
+         with
+         | None -> true
+         | Some (_prefilter_formula, prefilter) -> prefilter content)
 
 let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
     (lazy_ast_and_errors :
@@ -259,13 +251,14 @@ let collect_taint_entries
  * by [classify_rules_for_analyzer]). Returns the matches and errors so callers
  * can convert them into diagnostics.
  *
- * We deliberately do *not* call [summarize_prefilter_rules] on these rules:
- * [Match_rules.check] already does per-rule regex prefiltering with a
- * shared cache (see [xconfig_with_prefilter_cache]). The engine's filter
- * is strictly more powerful than [summarize_prefilter_rules] (it combines
- * all subformulas of a rule into a single prefilter formula and caches
- * the compiled regex once per rule across the whole run), so doing both
- * just doubles the work. *)
+ * We deliberately do *not* run [prefilter_passes_for_formulas] on these
+ * rules: [Match_rules.check] already does per-rule regex prefiltering with
+ * a shared cache (see [xconfig_with_prefilter_cache]). The engine's filter
+ * is strictly more powerful (it combines all subformulas of a rule into a
+ * single prefilter formula and caches the compiled regex once per rule
+ * across the whole run), so doing both just doubles the work. The taint
+ * path can't piggy-back on it because it bypasses [Match_rules.check] and
+ * calls [Match_taint_spec.spec_matches_of_taint_rule] directly. *)
 let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
     (search_rules : Rule.t list) : Core_match.t list * Core_error.t list =
   if search_rules = [] then ([], [])
@@ -326,19 +319,9 @@ let parse_file ?(with_search_diagnostics = false)
   | [] -> mk_parsed ~matches ~errors ()
   | taint_rules ->
       let taint_rules =
-        summarize_prefilter_rules
+        prefilter_taint_rules
           ~content:(Lazy.force xtarget.Xtarget.lazy_content)
           taint_rules
-      in
-      (* Refine [Rule.t] back to [Rule.taint_rule] for the engine API.
-       * Safe: [classify_rules_for_analyzer] guarantees every entry has a
-       * [`Taint] mode, so [filter_map] never drops anything here. *)
-      let taint_rules =
-        taint_rules
-        |> List.filter_map (fun r ->
-               match r.Rule.mode with
-               | `Taint _ as mode -> Some { r with mode }
-               | _ -> None)
       in
       let taint_entries =
         collect_taint_entries
