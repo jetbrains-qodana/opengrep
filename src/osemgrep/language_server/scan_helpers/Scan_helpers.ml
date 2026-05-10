@@ -56,7 +56,7 @@ let timing_enabled () =
 let log_timing msgf = if timing_enabled () then Logs.app msgf
 
 let ast_fallback_payload () =
-  Taint_processor.serialize_empty_ast_with_taint_to_string ()
+  Ast_payload.serialize_empty_ast_with_taint_to_string ()
 
 (* Relevant here means any matches we actually care about showing the user.
     This means like some matches, such as those that appear in committed
@@ -367,7 +367,7 @@ let scan_file session uri =
             let t0 = Unix.gettimeofday () in
             let%lwt ir_json =
               wrap_with_detach (fun () ->
-                  Taint_processor.parse_and_serialize_file
+                  Taint_pipeline.parse_and_serialize_file
                     (session.caps :> < Cap.fork >) ~num_domains ~format file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in

@@ -119,12 +119,14 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
     UCommon.pr2 "[taint] No files provided on stdin";
     Exit_code.ok ~__LOC__)
   else (
-    Taint_processor.parse_files_ast
+    Taint_pipeline.parse_files_ast
       (caps :> < Cap.fork >)
       {
         num_domains = conf.jobs;
         mode = if conf.with_diagnostics then `All else `Taint;
-        on_parsed = Taint_processor.write_result_to_stdout ~ast_format:conf.format ~rules;
+        on_parsed =
+          Stdout_emitter.write_result_to_stdout
+            ~ast_format:conf.format ~rules;
         files;
         rules;
       };

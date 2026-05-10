@@ -1,0 +1,31 @@
+(* Batch and single-file orchestration of the taint scan engine.
+ *
+ * Owns the parmap dispatch and per-file housekeeping (LSP cache cleanup,
+ * GC compaction). Calls [Taint_engine] for the actual analysis and
+ * [Ast_payload] for serialization. *)
+
+(** Run the taint engine on every file in [conf.files], dispatched across
+    [conf.num_domains] worker domains, and invoke [conf.on_parsed] for each
+    successfully parsed file.
+
+    Files are filtered by language support and oversize threshold (currently
+    a hard-coded 500 KB cap; oversized and unsupported files are silently
+    dropped). Per-file [parse_file] errors are caught and logged to stderr
+    via [UCommon.pr2]; they do not abort the batch.
+
+    [conf.on_parsed] may be invoked concurrently from multiple worker
+    domains, so the callback must be thread-safe. *)
+val parse_files_ast : < Cap.fork > -> Taint_scan_config.t -> unit
+
+(** Single-file entry point used by the LSP server. Parses [infile], runs
+    the taint engine on [rules], serialises the result as JSON or binary,
+    and performs LSP-specific per-file cleanup (memo tables, libc free,
+    periodic [Gc.compact]).
+
+    [_caps] and [~num_domains] are accepted for API stability with existing
+    callers but are not currently used internally. *)
+val parse_and_serialize_file :
+  < Cap.fork > ->
+  num_domains:int ->
+  ?format:Ast_payload.ast_format ->
+  Fpath.t -> Rule.t list -> string

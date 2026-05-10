@@ -1,0 +1,38 @@
+(* Per-file analysis: parsing + naming + the search-engine and taint-engine
+ * pipelines, returning a [Taint_scan_config.parsed_file].
+ *
+ * No I/O beyond reading the input source file, no output formatting, no
+ * batch orchestration. Callers are responsible for parallelism and for
+ * handing the resulting [parsed_file] off to a consumer (serializer, LSP
+ * publisher, ...). *)
+
+(** Pre-classified rule set for a single target analyzer.
+    - [search_rules] are all rules whose [target_analyzer] is compatible with
+      the file's analyzer, deduplicated by [Rule_ID]. This is what
+      [Match_rules.check] (search-engine) wants.
+    - [taint_rules] is the [`Taint]-mode subset, refined to [Rule.taint_rule]
+      so the taint engine API can be called directly without a round-trip
+      cast. *)
+type analyzer_rules = {
+  search_rules : Rule.t list;
+  taint_rules : Rule.taint_rule list;
+}
+
+(** Single-pass classification of [rules] for a given [analyzer]. Callers in
+    a batch context typically memoize one [analyzer_rules] per distinct
+    language seen in the batch and reuse it for every matching file. *)
+val classify_rules_for_analyzer :
+  analyzer:Xlang.t -> Rule.t list -> analyzer_rules
+
+(** Parse [infile] and run the taint (and optionally the search) engine on
+    it, using the precomputed [analyzer_rules]. The caller is responsible
+    for matching [analyzer_rules] to the file's language; passing rules for
+    a wrong analyzer will silently produce no taint entries (the engine's
+    prefilter will reject everything) but is otherwise safe.
+
+    When [~with_search_diagnostics:true], [parsed_file.matches] and
+    [parsed_file.errors] are populated by [Match_rules.check]; otherwise
+    both are empty. *)
+val parse_file :
+  ?with_search_diagnostics:bool ->
+  Fpath.t -> analyzer_rules -> Taint_scan_config.parsed_file
