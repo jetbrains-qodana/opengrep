@@ -135,13 +135,6 @@ let xconfig_with_prefilter_cache : Match_env.xconfig =
       Match_env.PrefilterWithCache prefilter_cache_dls;
   }
 
-(* Backwards-compatible alias for callers that still want the
- * unprefiltered config (e.g. nested formula evaluation paths or any
- * code that pre-filters rules itself). *)
-let filter_relevance_conf =
-  { xconfig_with_prefilter_cache with
-    filter_irrelevant_rules = Match_env.NoPrefiltering }
-
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
   let formulas = Rule.formulas_of_mode rule.Rule.mode in
@@ -191,7 +184,7 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
         (fun (rule : Rule.taint_rule) ->
           let spec_matches, _expls =
             Match_taint_spec.spec_matches_of_taint_rule
-              ~per_file_formula_cache:formula_cache filter_relevance_conf
+              ~per_file_formula_cache:formula_cache xconfig_with_prefilter_cache
               infile_s (ast, []) rule
           in
           match spec_matches with
@@ -462,7 +455,3 @@ let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
   let count = Atomic.fetch_and_add parse_counter 1 + 1 in
   if count mod 200 = 0 then Gc.compact ();
   result
-
-let serialize_to_json_file ~(file : Fpath.t) (ast : AST_generic.program) : unit =
-  let json_string = serialize_ast_to_json_string ast in
-  UFile.write_file ~file json_string
