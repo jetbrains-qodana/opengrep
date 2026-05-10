@@ -83,11 +83,7 @@ let write_result_to_stdout ~(ast_format : ast_format) ~(rules : Rule.t list) (pa
     [ ("file", `String (Fpath.to_string parsed.file)); ("data", data); ("diagnostics", diag) ]
   in
   let line = Y.to_string (`Assoc fields) in
-  Mutex.lock stdout_mutex;
-  Fun.protect ~finally:(fun () -> Mutex.unlock stdout_mutex) (fun () ->
-    output_string stdout line;
-    output_char stdout '\n';
-    flush stdout)
+  Mutex.protect stdout_mutex (fun () -> Printf.fprintf stdout "%s\n%!" line)
 
 
 (* Extract deduplication key for taint entries (sources/sinks/sanitizers) *)
@@ -101,19 +97,6 @@ let propagator_key (rule_name, loc, locFrom, locTo : string * Taint_location.tai
     loc.file_path loc.line loc.col loc.offsetStart loc.offsetEnd
     locFrom.line locFrom.col locFrom.offsetStart locFrom.offsetEnd
     locTo.line locTo.col
-
-(* Split list into at most n chunks of roughly equal size *)
-let split_into_chunks n lst =
-  let a = Array.of_list lst in
-  let total = Array.length a in
-  let n = min n total in
-  if n <= 1 then [ lst ]
-  else
-    List.init n (fun i ->
-        let lo = i * total / n in
-        let hi = (i + 1) * total / n in
-        Array.to_list (Array.sub a lo (hi - lo)))
-    |> List.filter (fun c -> c <> [])
 
 (* Per-domain regexp prefilter cache shared across all files processed by
  * that domain. This mirrors what Core_scan.scan_exn does: without it, every
@@ -172,14 +155,14 @@ let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
     lazy_ast_and_errors;
   }
 
-let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
-    ?(shared_formula_cache = false)
+let collect_taint_entries
     ~(infile_s : string)
     ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
     Taint_serializer.taint_entries_t =
   if taint_rules = [] then empty_taint_entries
   else
-    let process_rules formula_cache (rules_to_run : Rule.taint_rule list) =
+    let formula_cache = Formula_cache.mk_specialized_formula_cache taint_rules in
+    let taint_configs_and_matches =
       List.filter_map
         (fun (rule : Rule.taint_rule) ->
           let spec_matches, _expls =
@@ -193,32 +176,7 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
               None
           | _ ->
               Some (fst rule.Rule.id, spec_matches))
-        rules_to_run
-    in
-    let taint_configs_and_matches =
-      if shared_formula_cache then
-        let formula_cache = Formula_cache.mk_specialized_formula_cache taint_rules in
-        process_rules formula_cache taint_rules
-      else
-        let process_chunk (chunk : Rule.taint_rule list) =
-          let chunk_cache = Formula_cache.mk_specialized_formula_cache chunk in
-          process_rules chunk_cache chunk
-        in
-        let chunks = split_into_chunks num_domains taint_rules in
-        match chunks with
-        | [ single_chunk ] -> process_chunk single_chunk
-        | _ ->
-            let exception_handler (_chunk : Rule.taint_rule list)
-                (e : Exception.t) =
-              UCommon.pr2
-                (Printf.sprintf
-                   "[ir-pipeline]   WARNING: taint rule chunk failed: %s"
-                   (Exception.to_string e));
-              []
-            in
-            Domainslib_.parmap caps ~num_domains ~exception_handler process_chunk
-              chunks
-            |> List.concat_map (function Ok r -> r | Error r -> r)
+        taint_rules
     in
     let make_taint_entry rule_id rwm =
       let range = rwm.Range_with_metavars.r in
@@ -227,27 +185,18 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
       let loc = Taint_location.mk_loc_from_tok ~file_path:infile_s tok1 range in
       (rule_name, loc)
     in
-    let taint_sources =
+    (* Shared shape for sources/sinks/sanitizers: per-rule list of (rwm, _),
+     * mapped to a [(rule_name, loc)] entry and deduplicated. *)
+    let collect_simple proj =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
-             spec_matches.Match_taint_spec.sources
+             proj spec_matches
              |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
-    let taint_sinks =
-      taint_configs_and_matches
-      |> List.concat_map (fun (rule_id, spec_matches) ->
-             spec_matches.Match_taint_spec.sinks
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
-      |> List_.deduplicate_gen ~get_key:taint_entry_key
-    in
-    let taint_sanitizers =
-      taint_configs_and_matches
-      |> List.concat_map (fun (rule_id, spec_matches) ->
-             spec_matches.Match_taint_spec.sanitizers
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
-      |> List_.deduplicate_gen ~get_key:taint_entry_key
-    in
+    let taint_sources    = collect_simple (fun sm -> sm.Match_taint_spec.sources)    in
+    let taint_sinks      = collect_simple (fun sm -> sm.Match_taint_spec.sinks)      in
+    let taint_sanitizers = collect_simple (fun sm -> sm.Match_taint_spec.sanitizers) in
     let taint_propagators =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
@@ -312,8 +261,10 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
               |> String.concat ","));
         ([], [])
 
-let parse_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(mode : Taint_scan_config.mode = `Taint)
+(* When [~with_search_diagnostics:true], the search-engine ([Match_rules.check])
+ * is also run on the file, so [parsed_file.matches] and [parsed_file.errors]
+ * are populated; otherwise both are empty and only the taint engine runs. *)
+let parse_file ?(with_search_diagnostics = false)
     (infile : Fpath.t) (rules : Rule.t list) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
@@ -331,7 +282,7 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       errors }
   in
   let matches, errors =
-    if mode = `All then run_rules_engine_for_diagnostics xtarget rules
+    if with_search_diagnostics then run_rules_engine_for_diagnostics xtarget rules
     else ([], [])
   in
   let taint_rules =
@@ -360,7 +311,7 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
               | _ -> None)
     in
     let taint_entries =
-      collect_taint_entries caps ~num_domains ~shared_formula_cache:true
+      collect_taint_entries
         ~infile_s:(Fpath.to_string infile) ~ast taint_rules
     in
     mk_parsed ~taint_entries ~matches ~errors ()
@@ -393,7 +344,8 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   let error_count = Atomic.make 0 in
 
   let process_file (file : Fpath.t) =
-    conf.on_parsed @@ parse_file caps ~num_domains:1 ~mode:`All file conf.rules;
+    conf.on_parsed
+      (parse_file ~with_search_diagnostics:true file conf.rules);
     Atomic.incr success_count
   in
 
@@ -429,9 +381,13 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0
 
-let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
+(* [caps] and [~num_domains] are accepted for API stability with the LSP
+ * caller but are no longer used internally (kept here to avoid touching
+ * Scan_helpers.ml in this pass). *)
+let parse_and_serialize_file (_caps : < Cap.fork >) ~(num_domains : int)
     ?(format = `Json) (infile : Fpath.t) (rules: Rule.t list) : string =
-  let parsed = parse_file caps ~num_domains infile rules
+  let _ = num_domains in
+  let parsed = parse_file infile rules
   in
   let result =
     match format with
