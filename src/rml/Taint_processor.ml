@@ -31,19 +31,6 @@ let base64_encode (data : string) : string =
   loop 0;
   Buffer.contents buf
 
-type parsed_file = {
-  ast : AST_generic.program;
-  lang : Lang.t;
-  xlang : Xlang.t;
-  file : Fpath.t;
-  taint_entries : Taint_serializer.taint_entries_t;
-  (* Empty unless [parse_file] was called with [~with_diagnostics:true]. *)
-  matches : Core_match.t list;
-  (* Errors raised by the search/taint engine. Empty unless [with_diagnostics]
-   * was true. *)
-  errors : Core_error.t list;
-}
-
 let serialize_ast_to_json_string (ast : AST_generic.program) : string =
   let v1_ast = AST_generic_to_v1.program ast in
   Ast_generic_v1_j.string_of_program v1_ast
@@ -80,27 +67,20 @@ let skip_taint_large_file_bytes = 500_000
 
 let stdout_mutex = Mutex.create ()
 
-let write_result_to_stdout ~(format : ast_format)
-    ~(with_diagnostics : bool) ~(rules : Rule.t list)
-    (file_s : string) (parsed : parsed_file) : unit =
+let write_result_to_stdout ~(ast_format : ast_format) ~(rules : Rule.t list) (parsed : Taint_scan_config.parsed_file) : unit =
   let data =
-    match format with
+    match ast_format with
     | `Json ->
         serialize_ast_with_taint_to_string parsed.ast parsed.taint_entries
     | `Binary ->
         serialize_ast_with_taint_to_binary_string parsed.ast parsed.taint_entries
   in
-  let base_fields =
-    [ ("file", `String file_s); ("data", data) ]
-  in
-  let fields =
-    if not with_diagnostics then base_fields
-    else
-      let diag =
+  let diag =
         Diagnostics_renderer.render_lsp_diagnostics ~rules ~file:parsed.file
           ~xlang:parsed.xlang ~matches:parsed.matches ~errors:parsed.errors
       in
-      base_fields @ [ ("diagnostics", diag) ]
+  let fields =
+    [ ("file", `String (Fpath.to_string parsed.file)); ("data", data); ("diagnostics", diag) ]
   in
   let line = Y.to_string (`Assoc fields) in
   Mutex.lock stdout_mutex;
@@ -341,7 +321,7 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
 
 let parse_file (caps : < Cap.fork >) ~(num_domains : int)
     ?(with_diagnostics = false)
-    (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : parsed_file =
+    (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
   let parse_result = Parse_target.just_parse_with_lang lang infile in
@@ -352,8 +332,8 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
   let xtarget =
     xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
   in
-  let mk_parsed ?(taint_entries = empty_taint_entries) ?(matches = [])
-      ?(errors = []) () =
+  let mk_parsed ?(taint_entries = empty_taint_entries) ?(matches = []) 
+      ?(errors = []) () : Taint_scan_config.parsed_file =
     { ast; lang; xlang = analyzer; file = infile; taint_entries; matches;
       errors }
   in
@@ -396,18 +376,13 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
  * (one per file that passes the language and size filters). It may be
  * called concurrently from multiple worker domains when [num_domains > 1],
  * so the callback must be thread-safe. *)
-let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
-    ?(with_diagnostics = false)
-    ~(on_parsed : string -> parsed_file -> unit)
-    (files : Fpath.t list)
-    (description : string) (rules : Rule.t list) : unit =
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
-    (List.length files) description);
+let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files" (List.length conf.files));
 
   let glob_start_time = Unix.gettimeofday () in
 
   let sorted_files =
-    files
+    conf.files
     |> List.filter (fun file_path ->
            match Lang.langs_of_filename file_path with
            | [] -> false  (* Not supported language *)
@@ -419,9 +394,9 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
     let file_s = Fpath.to_string file in
     if (Unix.stat file_s).Unix.st_size < skip_taint_large_file_bytes then
       let parsed =
-        parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
+        parse_file caps ~num_domains:1 ~with_diagnostics:(conf.mode = `Taint) file file_s conf.rules
       in
-      on_parsed file_s parsed
+      conf.on_parsed parsed
     else ()
   in
 
@@ -431,12 +406,12 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
   in
 
   let results =
-    if num_domains <= 1 then
+    if conf.num_domains <= 1 then
       sorted_files
       |> List_.map (fun f ->
            Domainslib_.wrap_result process_file ~exception_handler f)
     else
-      Domainslib_.parmap caps ~num_domains ~chunksize:1 ~exception_handler
+      Domainslib_.parmap caps ~num_domains:conf.num_domains ~chunksize:1 ~exception_handler
         process_file sorted_files
   in
 
@@ -446,10 +421,10 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
   let error_count = List.length results - success_count in
 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
-    success_count (List.length files) error_count);
+    success_count (List.length conf.files) error_count);
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length files))))
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length conf.files))))
 
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0
