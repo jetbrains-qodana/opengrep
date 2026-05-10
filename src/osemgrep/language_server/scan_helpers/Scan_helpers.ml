@@ -42,6 +42,18 @@ let parse_and_resolve_name (lang : Lang.t) (fpath : Fpath.t) :
     not block the Lwt event loop *)
 let wrap_with_detach f = Lwt_platform.detach f ()
 
+(* Per-file cleanup after IR/taint AST serialisation in the LSP: drop memo
+ * tables keyed by path, return large malloc blocks to the OS, and compact
+ * the heap periodically (same policy as the former [Taint_pipeline] hook). *)
+let ir_ast_parse_gc_counter = Atomic.make 0
+
+let cleanup_after_ir_ast_parse (path : Fpath.t) : unit =
+  Kcas_data.Hashtbl.remove Range.hmemo path;
+  Kcas_data.Hashtbl.remove Xpattern_matcher.hmemo path;
+  Memory_release.release ();
+  let c = Atomic.fetch_and_add ir_ast_parse_gc_counter 1 + 1 in
+  if c mod 200 = 0 then Gc.compact ()
+
 let timing_enabled () =
   match Sys.getenv_opt "OPENGREP_LSP_TIMING" with
   | Some v -> (
@@ -368,7 +380,8 @@ let scan_file session uri =
             let%lwt ir_json =
               wrap_with_detach (fun () ->
                   Taint_pipeline.parse_and_serialize_file
-                    (session.caps :> < Cap.fork >) ~num_domains ~format file rules)
+                    (session.caps :> < Cap.fork >) ~num_domains ~format
+                    ~after_file:cleanup_after_ir_ast_parse file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in
             if not (document_version_is_current ()) then (

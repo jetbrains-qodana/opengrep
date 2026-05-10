@@ -41,6 +41,7 @@ depends: [
   "uutf"
   "logs"
   "atdgen"
+  "base64" {>= "3.0.0"}
   "yojson" {>= "2.0.0"}
   "yaml"
   "xmlm"

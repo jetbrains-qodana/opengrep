@@ -10,17 +10,19 @@
 
     Files are filtered by language support and oversize threshold (currently
     a hard-coded 500 KB cap; oversized and unsupported files are silently
-    dropped). Per-file [parse_file] errors are caught and logged to stderr
-    via [UCommon.pr2]; they do not abort the batch.
+    dropped). Per-file [parse_file] errors are caught and logged via
+    [Logs] under [semgrep.ir-pipeline]; they do not abort the batch.
 
     [conf.on_parsed] may be invoked concurrently from multiple worker
     domains, so the callback must be thread-safe. *)
 val parse_files_ast : < Cap.fork > -> Taint_scan_config.t -> unit
 
 (** Single-file entry point used by the LSP server. Parses [infile], runs
-    the taint engine on [rules], serialises the result as JSON or binary,
-    and performs LSP-specific per-file cleanup (memo tables, libc free,
-    periodic [Gc.compact]).
+    the taint engine on [rules], and serialises the result as JSON or binary.
+
+    [~after_file] is invoked after serialisation with the same [infile] path
+    (default [Fun.const ()]). The LSP uses this for per-file cache cleanup and
+    memory hygiene; keep it cheap and thread-safe if you override it.
 
     [_caps] and [~num_domains] are accepted for API stability with existing
     callers but are not currently used internally. *)
@@ -28,4 +30,5 @@ val parse_and_serialize_file :
   < Cap.fork > ->
   num_domains:int ->
   ?format:Ast_payload.ast_format ->
+  ?after_file:(Fpath.t -> unit) ->
   Fpath.t -> Rule.t list -> string

@@ -5,6 +5,7 @@
  (libraries
   semgrep.il
   ast_generic
+  base64
   commons
   yojson
   semgrep.tainting
@@ -13,5 +14,5 @@
   semgrep.core_runner
   semgrep.osemgrep_reporting
   parallelism
-  semgrep.memory_release
+  logs.fmt
  ))

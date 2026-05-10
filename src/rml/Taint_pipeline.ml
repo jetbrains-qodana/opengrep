@@ -6,7 +6,8 @@ let skip_taint_large_file_bytes = 500_000
 
 let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   let n_files = List.length conf.files in
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files" n_files);
+  Logs.app ~src:Ir_pipeline_logs.src (fun m ->
+    m "Processing %d files" n_files);
 
   let glob_start_time = Unix.gettimeofday () in
 
@@ -53,8 +54,8 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
     Atomic.incr error_count;
-    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
-                   (Fpath.to_string file) (Exception.to_string e))
+    Logs.err ~src:Ir_pipeline_logs.src (fun m ->
+      m "ERROR: %s - %s" (Fpath.to_string file) (Exception.to_string e))
   in
 
   if conf.num_domains <= 1 then
@@ -70,24 +71,21 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   let success_count = Atomic.get success_count in
   let error_count = Atomic.get error_count in
 
-  UCommon.pr2 (Printf.sprintf
-                 "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
-                 success_count n_files error_count);
+  Logs.app ~src:Ir_pipeline_logs.src (fun m ->
+    m "Successfully processed %d/%d files (%d errors)" success_count n_files
+      error_count);
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
   let avg_ms_str =
     if n_files = 0 then "n/a"
     else Printf.sprintf "%.2f ms" (glob_elapsed_ms /. float_of_int n_files)
   in
-  UCommon.pr2 (Printf.sprintf
-                 "[ir-pipeline]   Total time - %.2f ms; average time - %s"
-                 glob_elapsed_ms avg_ms_str)
-
-(* Counter for periodic GC compaction in the LSP single-file path. *)
-let parse_counter = Atomic.make 0
+  Logs.app ~src:Ir_pipeline_logs.src (fun m ->
+    m "Total time - %.2f ms; average time - %s" glob_elapsed_ms avg_ms_str)
 
 let parse_and_serialize_file (_caps : < Cap.fork >) ~(num_domains : int)
-    ?(format = `Json) (infile : Fpath.t) (rules : Rule.t list) : string =
+    ?(format = `Json) ?(after_file = Fun.const ()) (infile : Fpath.t)
+    (rules : Rule.t list) : string =
   let _ = num_domains in
   (* Single-file path: no batch to amortize across, so classify on every
    * call. [Lang.lang_of_filename_exn] is also called inside [parse_file];
@@ -109,18 +107,5 @@ let parse_and_serialize_file (_caps : < Cap.fork >) ~(num_domains : int)
           parsed.ast parsed.taint_entries
         |> Yojson.Safe.pretty_to_string
   in
-  (* Clean up per-file caches that would otherwise accumulate indefinitely
-     in the LSP server. These caches store file contents and line/column
-     converters keyed by file path. In CLI mode they are cleaned up via
-     Globals.reset() or temp-file hooks, but in the LSP server neither
-     mechanism fires for real (non-temp) file paths. *)
-  Kcas_data.Hashtbl.remove Range.hmemo infile;
-  Kcas_data.Hashtbl.remove Xpattern_matcher.hmemo infile;
-  (* Ask the C allocator to return freed large blocks to the OS.
-     Tree-sitter parsing allocates large C blocks that, once freed, remain
-     as dirty MALLOC_LARGE (empty) pages on macOS. Calling this after each
-     file keeps RSS from growing unboundedly. *)
-  Memory_release.release ();
-  let count = Atomic.fetch_and_add parse_counter 1 + 1 in
-  if count mod 200 = 0 then Gc.compact ();
+  after_file infile;
   result

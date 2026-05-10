@@ -186,13 +186,10 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
       (res.matches, Core_error.ErrorSet.elements res.errors)
     with
     | Match_rules.File_timeout rule_ids ->
-        UCommon.pr2
-          (Printf.sprintf
-             "[ir-pipeline]   WARNING: file timeout while computing \
-              diagnostics, rules: %s"
-             (rule_ids
-              |> List_.map Rule_ID.to_string
-              |> String.concat ","));
+        Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+          m
+            "File timeout while computing diagnostics, rules: %s"
+            (rule_ids |> List_.map Rule_ID.to_string |> String.concat ","));
         ([], [])
 
 (* Per-file pipeline: parse + naming + (optional) search engine + (optional)
