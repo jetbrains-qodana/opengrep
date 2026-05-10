@@ -392,8 +392,13 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
     in
     mk_parsed ~taint_entries ~matches ~errors ()
 
+(* [on_parsed file_s parsed] is invoked for every successfully parsed file
+ * (one per file that passes the language and size filters). It may be
+ * called concurrently from multiple worker domains when [num_domains > 1],
+ * so the callback must be thread-safe. *)
 let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
-    ~(format : ast_format) ?(with_diagnostics = false)
+    ?(with_diagnostics = false)
+    ~(on_parsed : string -> parsed_file -> unit)
     (files : Fpath.t list)
     (description : string) (rules : Rule.t list) : unit =
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files %s"
@@ -416,8 +421,8 @@ let parse_files_ast (caps : < Cap.fork >) ~(num_domains : int)
       let parsed =
         parse_file caps ~num_domains:1 ~with_diagnostics file file_s rules
       in
-      write_result_to_stdout ~format ~with_diagnostics ~rules file_s parsed
-    else () 
+      on_parsed file_s parsed
+    else ()
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =

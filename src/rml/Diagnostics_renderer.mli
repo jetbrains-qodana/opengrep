@@ -7,22 +7,6 @@
 
 module Out = Semgrep_output_v1_t
 
-(* Convert a single [Out.cli_match] into a JSON object shaped like an LSP
- * [Diagnostic]. *)
-val lsp_diagnostic_of_cli_match : Out.cli_match -> Yojson.Safe.t
-
-(* Convert engine output into [Out.cli_match list] using the same canonical
- * pipeline that [opengrep scan] uses ([Core_runner.mk_result] +
- * [Output.preprocess_result]), so message templating, metavar interpolation,
- * severity overrides and fingerprinting match what scan would emit. *)
-val cli_matches_of_engine_results :
-  rules:Rule.t list ->
-  file:Fpath.t ->
-  xlang:Xlang.t ->
-  matches:Core_match.t list ->
-  errors:Core_error.t list ->
-  Out.cli_match list
-
 (* Render engine results as a JSON array of LSP-style diagnostics.
  *
  * Catches conversion failures so a single bad file doesn't take down a

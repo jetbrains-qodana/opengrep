@@ -121,8 +121,11 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
   else (
     Taint_processor.parse_files_ast
       (caps :> < Cap.fork >)
-      ~num_domains:conf.jobs ~format:conf.format
+      ~num_domains:conf.jobs
       ~with_diagnostics:conf.with_diagnostics
+      ~on_parsed:
+        (Taint_processor.write_result_to_stdout
+           ~format:conf.format ~with_diagnostics:conf.with_diagnostics ~rules)
       files "" rules;
     Exit_code.ok ~__LOC__)
 
