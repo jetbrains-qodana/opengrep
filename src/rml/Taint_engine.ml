@@ -195,7 +195,13 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
               |> String.concat ","));
         ([], [])
 
-let parse_file ?(with_search_diagnostics = false)
+(* Per-file pipeline: parse + naming + (optional) search engine + (optional)
+ * taint engine. See [parse_file]'s doc in the .mli for the public contract.
+ *
+ * Two short-circuit paths:
+ *   - [mode = `Taint] skips [run_rules_engine_for_diagnostics] entirely.
+ *   - [ar.taint_rules = []] skips the prefilter + taint engine entirely. *)
+let parse_file ?(mode: Taint_scan_config.mode = `Taint)
     (infile : Fpath.t) (ar : analyzer_rules) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
@@ -213,9 +219,9 @@ let parse_file ?(with_search_diagnostics = false)
       errors }
   in
   let matches, errors =
-    if with_search_diagnostics then
-      run_rules_engine_for_diagnostics xtarget ar.search_rules
-    else ([], [])
+    match mode with
+    | `All -> run_rules_engine_for_diagnostics xtarget ar.search_rules
+    | `Taint -> ([], [])
   in
   match ar.taint_rules with
   | [] -> mk_parsed ~matches ~errors ()

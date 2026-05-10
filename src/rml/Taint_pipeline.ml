@@ -47,8 +47,7 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   let process_file (file : Fpath.t) =
     let lang = Lang.lang_of_filename_exn file in
     let ar = Hashtbl.find rules_by_lang lang in
-    conf.on_parsed
-      (Taint_engine.parse_file ~with_search_diagnostics:true file ar);
+    conf.on_parsed (Taint_engine.parse_file ~mode:conf.mode file ar);
     Atomic.incr success_count
   in
 

@@ -7,10 +7,11 @@ type parsed_file = {
   xlang : Xlang.t;
   file : Fpath.t;
   taint_entries : Taint_serializer.taint_entries_t;
-  (* Empty unless [parse_file] was called with [~with_diagnostics:true]. *)
+  (* Search-engine matches. Empty unless [parse_file] was called with
+   * [~mode:`All] (or the field was populated by some other code path). *)
   matches : Core_match.t list;
-  (* Errors raised by the search/taint engine. Empty unless [with_diagnostics]
-   * was true. *)
+  (* Errors raised by the search engine. Empty unless [parse_file] was called
+   * with [~mode:`All]. *)
   errors : Core_error.t list;
 }
 

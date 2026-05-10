@@ -25,14 +25,19 @@ val classify_rules_for_analyzer :
   analyzer:Xlang.t -> Rule.t list -> analyzer_rules
 
 (** Parse [infile] and run the taint (and optionally the search) engine on
-    it, using the precomputed [analyzer_rules]. The caller is responsible
-    for matching [analyzer_rules] to the file's language; passing rules for
-    a wrong analyzer will silently produce no taint entries (the engine's
-    prefilter will reject everything) but is otherwise safe.
+    it, using the precomputed [analyzer_rules].
 
-    When [~with_search_diagnostics:true], [parsed_file.matches] and
-    [parsed_file.errors] are populated by [Match_rules.check]; otherwise
-    both are empty. *)
+    [~mode] (default [`Taint]) selects which engines run:
+    - [`Taint]: only the taint engine runs. [parsed_file.matches] and
+      [parsed_file.errors] are empty.
+    - [`All]: the search engine ([Match_rules.check]) runs in addition to
+      the taint engine, and populates [parsed_file.matches] and
+      [parsed_file.errors] so the caller can render diagnostics from them.
+
+    The caller is responsible for matching [analyzer_rules] to the file's
+    language; passing rules for a wrong analyzer will silently produce no
+    taint entries (the engine's prefilter will reject everything) but is
+    otherwise safe. *)
 val parse_file :
-  ?with_search_diagnostics:bool ->
+  ?mode:Taint_scan_config.mode ->
   Fpath.t -> analyzer_rules -> Taint_scan_config.parsed_file
