@@ -82,22 +82,6 @@ let yojson_fields_of_taint_entries
  * [Diagnostics.diagnostic_of_match] in the language server. We deliberately
  * avoid depending on the LSP library here so the rml lib stays small. *)
 
-(* Mirror of Convert_utils.convert_severity / DiagnosticSeverity in LSP. *)
-let lsp_severity_of_match_severity (s : Out.match_severity) : int =
-  match s with
-  | `Error
-  | `Critical
-  | `High ->
-      1
-  | `Warning
-  | `Medium ->
-      2
-  | `Info
-  | `Low
-  | `Experiment
-  | `Inventory ->
-      3
-
 let position_to_yojson (p : Out.position) : Y.t =
   (* LSP uses 0-based line/character; opengrep positions are 1-based. *)
   `Assoc
@@ -117,10 +101,11 @@ let lsp_diagnostic_of_cli_match (m : Out.cli_match) : Y.t =
       Printf.sprintf "Semgrep found: %s" check_id_str
     else m.extra.message
   in
+  let severity = Y.from_string (Semgrep_output_v1_j.string_of_match_severity m.extra.severity)
+  in
   `Assoc [ ("range", range_of_cli_match m);
-      ("severity", `Int (lsp_severity_of_match_severity m.extra.severity));
+      ("severity", severity);
       ("code", `String check_id_str);
-      ("source", `String "Semgrep");
       ("message", `String message) ]
 
 (* Convert engine output into [Out.cli_match list] using the same canonical
