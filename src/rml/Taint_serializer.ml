@@ -117,27 +117,11 @@ let lsp_diagnostic_of_cli_match (m : Out.cli_match) : Y.t =
       Printf.sprintf "Semgrep found: %s" check_id_str
     else m.extra.message
   in
-  let metadata = (m.extra.metadata :> Y.t) in
-  let shortlink =
-    match metadata with
-    | `Assoc _ ->
-        metadata |> Y.Util.member "shortlink" |> Y.Util.to_string_option
-    | _ -> None
-  in
-  let base =
-    [ ("range", range_of_cli_match m);
+  `Assoc [ ("range", range_of_cli_match m);
       ("severity", `Int (lsp_severity_of_match_severity m.extra.severity));
       ("code", `String check_id_str);
       ("source", `String "Semgrep");
       ("message", `String message) ]
-  in
-  let fields =
-    match shortlink with
-    | None -> base
-    | Some s ->
-        base @ [ ("codeDescription", `Assoc [ ("href", `String s) ]) ]
-  in
-  `Assoc fields
 
 (* Convert engine output into [Out.cli_match list] using the same canonical
  * pipeline that [opengrep scan] uses (Core_runner.mk_result +
@@ -146,17 +130,15 @@ let lsp_diagnostic_of_cli_match (m : Out.cli_match) : Y.t =
 let cli_matches_of_engine_results ~(rules : Rule.t list) ~(file : Fpath.t)
     ~(xlang : Xlang.t) ~(matches : Core_match.t list)
     ~(errors : Core_error.t list) : Out.cli_match list =
-  let processed_matches = matches |> List_.map Core_result.mk_processed_match in
-  let scanned = [ Target.mk_target xlang file ] in
   let core_result : Core_result.t =
     {
-      processed_matches;
+      processed_matches = List_.map Core_result.mk_processed_match matches;
       errors;
       skipped_targets = [];
       skipped_rules = [];
       valid_rules = rules;
       rules_with_targets = rules;
-      scanned;
+      scanned = [ Target.mk_target xlang file ];
       profiling = None;
       explanations = None;
       rules_by_engine = [];
