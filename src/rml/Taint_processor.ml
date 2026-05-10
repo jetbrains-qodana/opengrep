@@ -320,8 +320,8 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
         ([], [])
 
 let parse_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(with_diagnostics = false)
-    (infile : Fpath.t) (infile_s : string) (rules : Rule.t list) : Taint_scan_config.parsed_file =
+    ?(mode : Taint_scan_config.mode = `Taint)
+    (infile : Fpath.t) (rules : Rule.t list) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
   let parse_result = Parse_target.just_parse_with_lang lang infile in
@@ -338,7 +338,7 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
       errors }
   in
   let matches, errors =
-    if with_diagnostics then run_rules_engine_for_diagnostics xtarget rules
+    if mode = `All then run_rules_engine_for_diagnostics xtarget rules
     else ([], [])
   in
   let taint_rules =
@@ -368,71 +368,77 @@ let parse_file (caps : < Cap.fork >) ~(num_domains : int)
     in
     let taint_entries =
       collect_taint_entries caps ~num_domains ~shared_formula_cache:true
-        ~infile_s ~ast taint_rules
+        ~infile_s:(Fpath.to_string infile) ~ast taint_rules
     in
     mk_parsed ~taint_entries ~matches ~errors ()
 
-(* [on_parsed file_s parsed] is invoked for every successfully parsed file
+(* [conf.on_parsed parsed] is invoked for every successfully parsed file
  * (one per file that passes the language and size filters). It may be
  * called concurrently from multiple worker domains when [num_domains > 1],
  * so the callback must be thread-safe. *)
 let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files" (List.length conf.files));
+  let n_files = List.length conf.files in
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline] Processing %d files" n_files);
 
   let glob_start_time = Unix.gettimeofday () in
 
-  let sorted_files =
+  let applicable_files_sorted =
     conf.files
     |> List.filter (fun file_path ->
            match Lang.langs_of_filename file_path with
            | [] -> false  (* Not supported language *)
            | _ :: _ -> true)
+    |> List.filter (fun path -> (Unix.stat @@ Fpath.to_string path).Unix.st_size < skip_taint_large_file_bytes)
     |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
   in
 
+  (* Count outcomes via atomics rather than the parmap result list, so the
+   * per-file [parse_file] results (which previously survived in [results]
+   * until the whole batch finished) can be released as soon as the
+   * [on_parsed] callback returns. *)
+  let success_count = Atomic.make 0 in
+  let error_count = Atomic.make 0 in
+
   let process_file (file : Fpath.t) =
-    let file_s = Fpath.to_string file in
-    if (Unix.stat file_s).Unix.st_size < skip_taint_large_file_bytes then
-      let parsed =
-        parse_file caps ~num_domains:1 ~with_diagnostics:(conf.mode = `Taint) file file_s conf.rules
-      in
-      conf.on_parsed parsed
-    else ()
+    conf.on_parsed @@ parse_file caps ~num_domains:1 ~mode:`All file conf.rules;
+    Atomic.incr success_count
   in
 
   let exception_handler (file : Fpath.t) (e : Exception.t) =
-    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s"
-      (Fpath.to_string file) (Exception.to_string e))
+    Atomic.incr error_count;
+    UCommon.pr2 (Printf.sprintf "[ir-pipeline]   ERROR: %s - %s" (Fpath.to_string file) (Exception.to_string e))
   in
 
-  let results =
-    if conf.num_domains <= 1 then
-      sorted_files
-      |> List_.map (fun f ->
-           Domainslib_.wrap_result process_file ~exception_handler f)
-    else
-      Domainslib_.parmap caps ~num_domains:conf.num_domains ~chunksize:1 ~exception_handler
-        process_file sorted_files
-  in
+  if conf.num_domains <= 1 then
+    applicable_files_sorted
+    |> List.iter (fun f ->
+         ignore (Domainslib_.wrap_result process_file ~exception_handler f
+                 : (unit, unit) result))
+  else
+    ignore (Domainslib_.parmap caps ~num_domains:conf.num_domains ~chunksize:1
+              ~exception_handler process_file applicable_files_sorted
+            : (unit, unit) result list);
 
-  let success_count =
-    List.length (List.filter Result.is_ok results)
-  in
-  let error_count = List.length results - success_count in
+  let success_count = Atomic.get success_count in
+  let error_count = Atomic.get error_count in
 
   UCommon.pr2 (Printf.sprintf "[ir-pipeline] Successfully processed %d/%d files (%d errors)"
-    success_count (List.length conf.files) error_count);
+    success_count n_files error_count);
   let glob_end_time = Unix.gettimeofday () in
   let glob_elapsed_ms = (glob_end_time -. glob_start_time) *. 1000.0 in
-  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %.2f ms" glob_elapsed_ms (glob_elapsed_ms /. (float_of_int (List.length conf.files))))
+  let avg_ms_str =
+    if n_files = 0 then "n/a"
+    else Printf.sprintf "%.2f ms" (glob_elapsed_ms /. float_of_int n_files)
+  in
+  UCommon.pr2 (Printf.sprintf "[ir-pipeline]   Total time - %.2f ms; average time - %s"
+    glob_elapsed_ms avg_ms_str)
 
 (* Counter for periodic GC compaction *)
 let parse_counter = Atomic.make 0
 
 let parse_and_serialize_file (caps : < Cap.fork >) ~(num_domains : int)
-    ?(format = `Json) (infile : Fpath.t)
-    (infile_s : string) (rules: Rule.t list) : string =
-  let parsed = parse_file caps ~num_domains infile infile_s rules
+    ?(format = `Json) (infile : Fpath.t) (rules: Rule.t list) : string =
+  let parsed = parse_file caps ~num_domains infile rules
   in
   let result =
     match format with

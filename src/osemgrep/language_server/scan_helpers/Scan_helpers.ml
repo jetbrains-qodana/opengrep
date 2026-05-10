@@ -362,14 +362,13 @@ let scan_file session uri =
       else
         Lwt.catch
           (fun () ->
-            let infile_s = Fpath.to_string file in
             let rules = session.cached_session.rules in
             let num_domains = Domainslib_.get_cpu_count () in
             let t0 = Unix.gettimeofday () in
             let%lwt ir_json =
               wrap_with_detach (fun () ->
                   Taint_processor.parse_and_serialize_file
-                    (session.caps :> < Cap.fork >) ~num_domains ~format file infile_s rules)
+                    (session.caps :> < Cap.fork >) ~num_domains ~format file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in
             if not (document_version_is_current ()) then (
