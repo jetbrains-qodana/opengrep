@@ -118,6 +118,44 @@ let xconfig_with_prefilter_cache : Match_env.xconfig =
       Match_env.PrefilterWithCache prefilter_cache_dls;
   }
 
+(* Pre-classified rule set for a single target analyzer.
+ *
+ * - [search_rules] are all rules whose [target_analyzer] is compatible with
+ *   the file's analyzer, deduplicated by Rule_ID. This is what
+ *   [Match_rules.check] (search-engine) wants.
+ * - [taint_rules] is the subset of [search_rules] that have a [`Taint] mode,
+ *   also deduplicated by Rule_ID. Kept as [Rule.t list] (rather than
+ *   [Rule.taint_rule list]) so it can flow through [summarize_prefilter_rules]
+ *   without a round-trip cast; the refinement to [Rule.taint_rule] happens
+ *   right before [collect_taint_entries] is called.
+ *
+ * Computing this once per (analyzer, rules) instead of three times per file
+ * (the previous shape) turns O(files * rules) work into O(distinct_langs *
+ * rules + files), which matters for large rulesets and many files. *)
+type analyzer_rules = {
+  search_rules : Rule.t list;
+  taint_rules : Rule.t list;
+}
+
+let classify_rules_for_analyzer ~(analyzer : Xlang.t) (rules : Rule.t list) :
+    analyzer_rules =
+  let seen = Hashtbl.create 64 in
+  let search_acc = ref [] in
+  let taint_acc = ref [] in
+  rules |> List.iter (fun (r : Rule.t) ->
+    if Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer then begin
+      let id = Rule_ID.to_string (fst r.Rule.id) in
+      if not (Hashtbl.mem seen id) then begin
+        Hashtbl.add seen id ();
+        search_acc := r :: !search_acc;
+        match r.Rule.mode with
+        | `Taint _ -> taint_acc := r :: !taint_acc
+        | _ -> ()
+      end
+    end);
+  { search_rules = List.rev !search_acc;
+    taint_rules = List.rev !taint_acc }
+
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
   let formulas = Rule.formulas_of_mode rule.Rule.mode in
@@ -216,29 +254,21 @@ let collect_taint_entries
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
-(* Run the search/taint rule engine on [xtarget] for the rules compatible
- * with the file's analyzer. Returns the matches and errors so callers can
- * convert them into diagnostics. Skipped (returns empty) when no rules
- * remain after the language compatibility filter.
+(* Run the search/taint rule engine on [xtarget] for the precomputed
+ * [search_rules] (already filtered for analyzer compatibility and deduplicated
+ * by [classify_rules_for_analyzer]). Returns the matches and errors so callers
+ * can convert them into diagnostics.
  *
- * We deliberately do *not* call [summarize_prefilter_rules] here:
+ * We deliberately do *not* call [summarize_prefilter_rules] on these rules:
  * [Match_rules.check] already does per-rule regex prefiltering with a
  * shared cache (see [xconfig_with_prefilter_cache]). The engine's filter
  * is strictly more powerful than [summarize_prefilter_rules] (it combines
  * all subformulas of a rule into a single prefilter formula and caches
  * the compiled regex once per rule across the whole run), so doing both
  * just doubles the work. *)
-let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list) :
-    Core_match.t list * Core_error.t list =
-  let analyzer = xtarget.Xtarget.xlang in
-  let compatible_rules =
-    rules
-    |> List.filter (fun (r : Rule.t) ->
-           Xlang.is_compatible ~require:analyzer ~provide:r.Rule.target_analyzer)
-    |> List_.deduplicate_gen
-         ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
-  in
-  if compatible_rules = [] then ([], [])
+let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
+    (search_rules : Rule.t list) : Core_match.t list * Core_error.t list =
+  if search_rules = [] then ([], [])
   else
     try
       let res =
@@ -246,7 +276,7 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
           ~match_hook:(fun _ -> ())
           ~timeout:None
           xconfig_with_prefilter_cache
-          compatible_rules
+          search_rules
           xtarget
       in
       (res.matches, Core_error.ErrorSet.elements res.errors)
@@ -263,9 +293,15 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t) (rules : Rule.t list)
 
 (* When [~with_search_diagnostics:true], the search-engine ([Match_rules.check])
  * is also run on the file, so [parsed_file.matches] and [parsed_file.errors]
- * are populated; otherwise both are empty and only the taint engine runs. *)
+ * are populated; otherwise both are empty and only the taint engine runs.
+ *
+ * [ar] is the precomputed analyzer-specific rule set produced by
+ * [classify_rules_for_analyzer]. The caller is responsible for passing rules
+ * matched to the file's language; passing rules for the wrong analyzer will
+ * silently produce no taint entries (the engine's prefilter will reject
+ * everything) but is otherwise safe. *)
 let parse_file ?(with_search_diagnostics = false)
-    (infile : Fpath.t) (rules : Rule.t list) : Taint_scan_config.parsed_file =
+    (infile : Fpath.t) (ar : analyzer_rules) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
   let parse_result = Parse_target.just_parse_with_lang lang infile in
@@ -276,45 +312,39 @@ let parse_file ?(with_search_diagnostics = false)
   let xtarget =
     xtarget_for_ast infile analyzer (lazy (ast, parse_result.skipped_tokens))
   in
-  let mk_parsed ?(taint_entries = empty_taint_entries) ?(matches = []) 
+  let mk_parsed ?(taint_entries = empty_taint_entries) ?(matches = [])
       ?(errors = []) () : Taint_scan_config.parsed_file =
     { ast; lang; xlang = analyzer; file = infile; taint_entries; matches;
       errors }
   in
   let matches, errors =
-    if with_search_diagnostics then run_rules_engine_for_diagnostics xtarget rules
+    if with_search_diagnostics then
+      run_rules_engine_for_diagnostics xtarget ar.search_rules
     else ([], [])
   in
-  let taint_rules =
-    rules
-    |> List.filter (fun (r : Rule.t) ->
-            Xlang.is_compatible ~require:analyzer ~provide:r.target_analyzer
-            &&
-            match r.Rule.mode with
-            | `Taint _ -> true
-            | _ -> false)
-    |> List_.deduplicate_gen
-          ~get_key:(fun r -> Rule_ID.to_string (fst r.Rule.id))
-  in
-  if taint_rules = [] then mk_parsed ~matches ~errors ()
-  else
-    let taint_rules =
-      summarize_prefilter_rules
-        ~content:(Lazy.force xtarget.Xtarget.lazy_content)
+  match ar.taint_rules with
+  | [] -> mk_parsed ~matches ~errors ()
+  | taint_rules ->
+      let taint_rules =
+        summarize_prefilter_rules
+          ~content:(Lazy.force xtarget.Xtarget.lazy_content)
+          taint_rules
+      in
+      (* Refine [Rule.t] back to [Rule.taint_rule] for the engine API.
+       * Safe: [classify_rules_for_analyzer] guarantees every entry has a
+       * [`Taint] mode, so [filter_map] never drops anything here. *)
+      let taint_rules =
         taint_rules
-    in
-    let taint_rules =
-      taint_rules
-      |> List.filter_map (fun r ->
-              match r.Rule.mode with
-              | `Taint _ as mode -> Some { r with mode }
-              | _ -> None)
-    in
-    let taint_entries =
-      collect_taint_entries
-        ~infile_s:(Fpath.to_string infile) ~ast taint_rules
-    in
-    mk_parsed ~taint_entries ~matches ~errors ()
+        |> List.filter_map (fun r ->
+               match r.Rule.mode with
+               | `Taint _ as mode -> Some { r with mode }
+               | _ -> None)
+      in
+      let taint_entries =
+        collect_taint_entries
+          ~infile_s:(Fpath.to_string infile) ~ast taint_rules
+      in
+      mk_parsed ~taint_entries ~matches ~errors ()
 
 (* [conf.on_parsed parsed] is invoked for every successfully parsed file
  * (one per file that passes the language and size filters). It may be
@@ -336,6 +366,19 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
     |> List_.sort_by_key UFile.filesize (Fun.flip Int.compare)
   in
 
+  (* Precompute the analyzer-specific rule classification once per distinct
+   * language seen in the batch. Without this, every file re-walks the full
+   * [conf.rules] list to compute its own search/taint subsets, which on
+   * large rulesets dominates the per-file overhead. *)
+  let rules_by_lang : (Lang.t, analyzer_rules) Hashtbl.t = Hashtbl.create 16 in
+  applicable_files_sorted
+  |> List.iter (fun f ->
+         let lang = Lang.lang_of_filename_exn f in
+         if not (Hashtbl.mem rules_by_lang lang) then
+           Hashtbl.add rules_by_lang lang
+             (classify_rules_for_analyzer
+                ~analyzer:(Xlang.of_lang lang) conf.rules));
+
   (* Count outcomes via atomics rather than the parmap result list, so the
    * per-file [parse_file] results (which previously survived in [results]
    * until the whole batch finished) can be released as soon as the
@@ -344,8 +387,9 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   let error_count = Atomic.make 0 in
 
   let process_file (file : Fpath.t) =
-    conf.on_parsed
-      (parse_file ~with_search_diagnostics:true file conf.rules);
+    let lang = Lang.lang_of_filename_exn file in
+    let ar = Hashtbl.find rules_by_lang lang in
+    conf.on_parsed (parse_file ~with_search_diagnostics:true file ar);
     Atomic.incr success_count
   in
 
@@ -387,7 +431,14 @@ let parse_counter = Atomic.make 0
 let parse_and_serialize_file (_caps : < Cap.fork >) ~(num_domains : int)
     ?(format = `Json) (infile : Fpath.t) (rules: Rule.t list) : string =
   let _ = num_domains in
-  let parsed = parse_file infile rules
+  (* Single-file path: no batch to amortize across, so classify on every call.
+   * [Lang.lang_of_filename_exn] is also called inside [parse_file]; the cost
+   * is sub-microsecond, not worth the API churn to deduplicate. *)
+  let lang = Lang.lang_of_filename_exn infile in
+  let ar =
+    classify_rules_for_analyzer ~analyzer:(Xlang.of_lang lang) rules
+  in
+  let parsed = parse_file infile ar
   in
   let result =
     match format with
