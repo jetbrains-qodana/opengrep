@@ -79,13 +79,15 @@ let skip_taint_large_file_bytes = 500_000
 
 
 (* Extract deduplication key for taint entries (sources/sinks/sanitizers) *)
-let taint_entry_key (rule_name, loc : string * Taint_location.taint_location) =
-  Printf.sprintf "%s:%s" rule_name (Taint_location.loc_string loc)
+let taint_entry_key ({ rule; loc; _ } : Taint_serializer.taint_entry) =
+  Printf.sprintf "%s:%s" rule (Taint_location.loc_string loc)
 
 (* Extract deduplication key for propagators *)
-let propagator_key (rule_name, loc, locFrom, locTo : string * Taint_location.taint_location * Taint_location.taint_location * Taint_location.taint_location) =
+let propagator_key
+    ({ rule; loc; locFrom; locTo; _ } : Taint_serializer.taint_propagator_entry)
+    =
   Printf.sprintf "%s:%s:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d"
-    rule_name
+    rule
     loc.file_path loc.line loc.col loc.offsetStart loc.offsetEnd
     locFrom.line locFrom.col locFrom.offsetStart locFrom.offsetEnd
     locTo.line locTo.col
@@ -158,6 +160,26 @@ let filter_relevance_conf =
     filter_irrelevant_rules = Match_env.NoPrefiltering;
     skip_taint = false;
   }
+
+let string_of_taint_formula (formula : Rule.formula) =
+  let rec go formula =
+    match formula.Rule.f with
+    | Rule.P p -> fst p.Xpattern.pstr
+    | Rule.Anywhere (_, formula)
+    | Rule.Inside (_, formula)
+    | Rule.Not (_, formula) ->
+        go formula
+    | Rule.Or (_, formulas)
+    | Rule.And (_, formulas) ->
+        formulas |> List_.map go |> String.concat "\n"
+  in
+  let pattern = go formula in
+  if pattern = "" then None else Some pattern
+
+let matched_pattern_of_range (rwm : Range_with_metavars.t) =
+  match rwm.Range_with_metavars.origin.Core_match.rule_id.pattern_string with
+  | "" -> None
+  | pattern -> Some pattern
 
 let classify_rule_for_ast_prefilter ~(content : string) (rule : Rule.t) :
     [ `Pass | `Reject | `Unknown ] =
@@ -244,32 +266,46 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
               chunks
             |> List.concat_map (function Ok r -> r | Error r -> r)
     in
-    let make_taint_entry rule_id rwm =
+    let make_taint_entry rule_id fallback_pattern rwm =
       let range = rwm.Range_with_metavars.r in
       let tok1, _tok2 = rwm.Range_with_metavars.origin.Core_match.range_loc in
       let rule_name = Rule_ID.to_string rule_id in
       let loc = Taint_location.mk_loc_from_tok tok1 range in
-      (rule_name, loc)
+      let pattern =
+        match matched_pattern_of_range rwm with
+        | Some _ as pattern -> pattern
+        | None -> fallback_pattern
+      in
+      { Taint_serializer.rule = rule_name; loc; pattern }
     in
     let taint_sources =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sources
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
+             |> List.map (fun (rwm, spec) ->
+                    make_taint_entry rule_id
+                      (string_of_taint_formula spec.Rule.source_formula)
+                      rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_sinks =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sinks
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
+             |> List.map (fun (rwm, spec) ->
+                    make_taint_entry rule_id
+                      (string_of_taint_formula spec.Rule.sink_formula)
+                      rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_sanitizers =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.sanitizers
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
+             |> List.map (fun (rwm, spec) ->
+                    make_taint_entry rule_id
+                      (string_of_taint_formula spec.Rule.sanitizer_formula)
+                      rwm))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
     let taint_propagators =
@@ -277,8 +313,11 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.propagators
              |> List.map (fun (prop_match : Match_taint_spec.propagator_match) ->
-                    let rule_name, loc =
-                      make_taint_entry rule_id prop_match.rwm
+                    let entry =
+                      make_taint_entry rule_id
+                        (string_of_taint_formula
+                           prop_match.spec.Rule.propagator_formula)
+                        prop_match.rwm
                     in
                     let locFrom =
                       Taint_location.mk_loc_from_range prop_match.from
@@ -286,7 +325,13 @@ let collect_taint_entries (caps : < Cap.fork >) ~(num_domains : int)
                     let locTo =
                       Taint_location.mk_loc_from_range prop_match.to_
                     in
-                    (rule_name, loc, locFrom, locTo)))
+                    {
+                      Taint_serializer.rule = entry.rule;
+                      loc = entry.loc;
+                      locFrom;
+                      locTo;
+                      pattern = entry.pattern;
+                    }))
       |> List_.deduplicate_gen ~get_key:propagator_key
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
