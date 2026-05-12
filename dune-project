@@ -119,6 +119,7 @@ a few other projects developed at r2c.
     (digestif (>= "1.0.0"))
     uri
     bos
+    rresult
   )
 )
 
@@ -453,6 +454,7 @@ For more information see https://opengrep.dev.
     (base (>= v0.17.1))
     fpath
     bos
+    rresult
     fileutils
     ; unit testing (note that testo is vendored in libs/ so not listed here)
     ; TODO? still need those alcotest-xx now that we use testo?
