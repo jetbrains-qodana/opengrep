@@ -17,6 +17,8 @@
 ; require libraries to explicitly declare every module they use,
 ; preventing accidental reliance on transitive exports (e.g. Rresult via bos)
 (implicit_transitive_deps false)
+; verify that opam (depends ...) matches what dune (libraries ...) actually use
+(strict_package_deps)
 
 ;; Opam package declarations for public libraries and public executables
 ;; defined in various dune files.
