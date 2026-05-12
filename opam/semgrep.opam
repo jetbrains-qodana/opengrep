@@ -27,6 +27,7 @@ depends: [
   "base" {>= "v0.17.1"}
   "fpath"
   "bos"
+  "rresult"
   "fileutils"
   "alcotest"
   "alcotest-js"
