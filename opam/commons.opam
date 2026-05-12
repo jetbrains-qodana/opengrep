@@ -27,6 +27,7 @@ depends: [
   "digestif" {>= "1.0.0"}
   "uri"
   "bos"
+  "rresult"
   "odoc" {with-doc}
 ]
 build: [
