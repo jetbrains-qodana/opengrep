@@ -14,9 +14,6 @@
 ; needed to support the earlybird debugger
 ; See https://dune.readthedocs.io/en/stable/dune-files.html#map-workspace-root
 (map_workspace_root false)
-; require libraries to explicitly declare every module they use,
-; preventing accidental reliance on transitive exports (e.g. Rresult via bos)
-(implicit_transitive_deps false)
 
 ;; Opam package declarations for public libraries and public executables
 ;; defined in various dune files.
