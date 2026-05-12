@@ -269,7 +269,7 @@ install-deps-for-semgrep-core:
 # to keep it and add `--no-cache`
 install-opam-deps:
 	opam update -y
-	OPAMSOLVERTIMEOUT=1200 opam install -y --assume-depexts --deps-only $(REQUIRED_DEPS)
+	OPAMSOLVERTIMEOUT=1200 opam install -y --locked --assume-depexts --deps-only $(REQUIRED_DEPS)
 
 # This will fail if semgrep.opam isn't up-to-date (in git),
 # and dune isn't installed yet. You can always install dune with
@@ -422,7 +422,7 @@ homebrew-setup:
 # See details at https://github.com/Homebrew/homebrew-core/pull/82693.
 # This workaround may no longer be necessary.
 # LIBRARY_PATH is set here so we build lwt w/libev
-	LIBRARY_PATH="$$(brew --prefix)/lib" opam install -y --deps-only --no-depexts $(REQUIRED_DEPS)
+	LIBRARY_PATH="$$(brew --prefix)/lib" opam install -y --locked --deps-only --no-depexts $(REQUIRED_DEPS)
 
 # -------------------------------------------------
 # Arch Linux
