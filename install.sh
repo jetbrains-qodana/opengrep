@@ -41,7 +41,7 @@ check_has_curl() {
 # Function to get available versions - already checked when running main
 get_available_versions() {
     check_has_curl
-    curl -s https://api.github.com/repos/opengrep/opengrep/releases |
+    curl -s https://api.github.com/repos/jetbrains-qodana/opengrep/releases |
         grep '"tag_name":' |
         sed -E 's/.*"([^"]+)".*/\1/'
 }
@@ -69,7 +69,7 @@ validate_signature() {
         if cosign verify-blob \
             --cert "$P/opengrep.cert" \
             --signature "${P}/opengrep.sig" \
-            --certificate-identity-regexp "https://github.com/opengrep/opengrep.+" \
+            --certificate-identity-regexp "https://github.com/jetbrains-qodana/opengrep.+" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${P}/opengrep"; then
             echo "Signature valid."
@@ -138,7 +138,7 @@ main() {
         exit 1
     fi
 
-    URL="https://github.com/opengrep/opengrep/releases/download/${VERSION}/${DIST}"
+    URL="https://github.com/jetbrains-qodana/opengrep/releases/download/${VERSION}/${DIST}"
 
     # check if binary already exists
     if [ -f "${INST}/opengrep" ]; then
