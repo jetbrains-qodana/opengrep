@@ -47,32 +47,59 @@ let classify_rules_for_analyzer ~(analyzer : Xlang.t) (rules : Rule.t list) :
   { search_rules = List.rev !search_acc;
     taint_rules = List.rev !taint_acc }
 
-(* Drop taint rules whose regexp prefilter rejects [content]. Keeps order.
+(* Per-domain cache for the union taint prefilter. Kept separate from
+ * [prefilter_cache_dls] because the two compute different formulas for the
+ * same Rule_ID (AND-combined sources∧sinks vs. OR over all taint formulas),
+ * so they must not share keyspace. *)
+let taint_union_prefilter_cache_dls
+    : (Rule_ID.t, (string -> bool) option) Hashtbl.t Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> Hashtbl.create 256)
+
+let union_prefilter_of_taint_rule (r : Rule.taint_rule)
+    : (string -> bool) option =
+  let _rule_id, rule_tok = r.Rule.id in
+  match Rule.formulas_of_mode (r.Rule.mode :> Rule.mode) with
+  | [] -> None
+  | formulas ->
+      let f = Rule.f (Rule.Or (rule_tok, formulas)) in
+      Analyze_rule.regexp_prefilter_of_formula
+        ~xlang:r.Rule.target_analyzer f
+      |> Option.map snd
+
+(* Drop taint rules whose union regexp prefilter rejects [content]. Keeps
+ * order.
  *
- * Delegates to [Analyze_rule.regexp_prefilter_of_rule], which builds a
- * single combined-formula regex per rule and memoises it through
- * [prefilter_cache_dls]. The same cache backs [Match_rules.check]'s
- * per-rule prefilter (see [is_relevant_rule_for_xtarget] in [Match_rules.ml]),
- * so each rule's regex is compiled at most once per domain across the whole
- * batch, regardless of how many files it's checked against and whether it's
- * also exercised on the search path. A [None] result means no extractable
- * prefilter; we conservatively keep the rule in that case. *)
+ * Builds a single [Or] over the rule's sources, sinks, sanitizers and
+ * propagators (via [Rule.formulas_of_mode]) and feeds it to
+ * [Analyze_rule.regexp_prefilter_of_formula]. This is intentionally looser
+ * than [Analyze_rule.regexp_prefilter_of_rule] for taint rules, which
+ * AND-combines sources and sinks and so would drop files containing only
+ * one half of the flow. Union semantics keeps such files, which matters
+ * for any future cross-file taint flow and is still sound for the current
+ * intra-file engine: a file with no taint-related token cannot produce a
+ * finding from this rule.
+ *
+ * A rule whose formulas yield no extractable prefilter ([None]) is
+ * conservatively kept. The compiled per-rule predicate is memoised in
+ * [taint_union_prefilter_cache_dls] so each rule's regex is compiled at
+ * most once per worker domain. *)
 let prefilter_taint_rules ~(content : string)
     (rules : Rule.taint_rule list) : Rule.taint_rule list =
-  (* Widen to [Rule.t] for the API. ['mode rule_info] is invariant so this is
-   * a record copy; it does NOT defeat caching because the cache key is the
-   * [Rule_ID.t]. *)
-  let widen (r : Rule.taint_rule) : Rule.t =
-    { r with mode = (r.mode :> Rule.mode) }
-  in
+  let cache = Domain.DLS.get taint_union_prefilter_cache_dls in
   rules
-  |> List.filter (fun r ->
-         match
-           Analyze_rule.regexp_prefilter_of_rule
-             ~cache:(Some prefilter_cache_dls) (widen r)
-         with
+  |> List.filter (fun (r : Rule.taint_rule) ->
+         let rule_id = fst r.Rule.id in
+         let pred_opt =
+           match Hashtbl.find_opt cache rule_id with
+           | Some v -> v
+           | None ->
+               let v = union_prefilter_of_taint_rule r in
+               Hashtbl.add cache rule_id v;
+               v
+         in
+         match pred_opt with
          | None -> true
-         | Some (_prefilter_formula, prefilter) -> prefilter content)
+         | Some pred -> pred content)
 
 let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
     (lazy_ast_and_errors :
