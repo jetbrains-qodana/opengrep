@@ -1,17 +1,16 @@
-(* LSP-style diagnostics rendering for the RML taint pipeline.
+(* Diagnostics rendering for the RML taint pipeline.
  *
- * The output shape mirrors LSP's [Diagnostic] type (range, severity, code,
- * message) so it matches the shape produced by [Diagnostics.diagnostic_of_match]
- * in the language server. We deliberately avoid depending on the LSP library
- * here so the rml lib stays small. *)
+ * The output shape is similiar to LSP's [Diagnostic] type (range, severity, code,
+ * message) but no the same. Severinity is serialized as string (not number like in LSP), 
+ * positions contain offsets (in contrast to LSP). *)
 
 module Out = Semgrep_output_v1_t
 
-(* Render engine results as a JSON array of LSP-style diagnostics.
+(* Render engine results as a JSON array.
  *
  * Catches conversion failures so a single bad file doesn't take down a
  * batch run; emits a stderr warning and an empty array instead. *)
-val render_lsp_diagnostics :
+val render_diagnostics :
   rules:Rule.t list ->
   file:Fpath.t ->
   xlang:Xlang.t ->

@@ -1,7 +1,5 @@
 (* Files larger than this are silently dropped from the batch (no event
- * emitted). The taint engine and the JSON serialiser are both quadratic
- * enough on huge inputs that letting them run on the long tail dominates
- * the wall clock for a whole batch. *)
+ * emitted). *)
 let skip_taint_large_file_bytes = 500_000
 
 let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
@@ -25,8 +23,7 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
 
   (* Precompute the analyzer-specific rule classification once per distinct
    * language seen in the batch. Without this, every file re-walks the full
-   * [conf.rules] list to compute its own search/taint subsets, which on
-   * large rulesets dominates the per-file overhead. *)
+   * [conf.rules] list to compute its own search/taint subsets. *)
   let rules_by_lang : (Lang.t, Taint_engine.analyzer_rules) Hashtbl.t =
     Hashtbl.create 16
   in
@@ -38,10 +35,6 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
              (Taint_engine.classify_rules_for_analyzer
                 ~analyzer:(Xlang.of_lang lang) conf.rules));
 
-  (* Count outcomes via atomics rather than the parmap result list, so the
-   * per-file [parse_file] results (which previously survived in the result
-   * list until the whole batch finished) can be released as soon as the
-   * [on_parsed] callback returns. *)
   let success_count = Atomic.make 0 in
   let error_count = Atomic.make 0 in
 
@@ -83,13 +76,8 @@ let parse_files_ast (caps : < Cap.fork >) (conf : Taint_scan_config.t) : unit =
   Logs.app ~src:Ir_pipeline_logs.src (fun m ->
     m "Total time - %.2f ms; average time - %s" glob_elapsed_ms avg_ms_str)
 
-let parse_and_serialize_file (_caps : < Cap.fork >) ~(num_domains : int)
-    ?(format = `Json) ?(after_file = Fun.const ()) (infile : Fpath.t)
-    (rules : Rule.t list) : string =
-  let _ = num_domains in
-  (* Single-file path: no batch to amortize across, so classify on every
-   * call. [Lang.lang_of_filename_exn] is also called inside [parse_file];
-   * the cost is sub-microsecond, not worth the API churn to deduplicate. *)
+let parse_and_serialize_file ?(format = `Json) ?(after_file = Fun.const ()) 
+    (infile : Fpath.t) (rules : Rule.t list) : string =
   let lang = Lang.lang_of_filename_exn infile in
   let ar =
     Taint_engine.classify_rules_for_analyzer

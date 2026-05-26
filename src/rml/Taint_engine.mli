@@ -1,10 +1,6 @@
 (* Per-file analysis: parsing + naming + the search-engine and taint-engine
  * pipelines, returning a [Taint_scan_config.parsed_file].
- *
- * No I/O beyond reading the input source file, no output formatting, no
- * batch orchestration. Callers are responsible for parallelism and for
- * handing the resulting [parsed_file] off to a consumer (serializer, LSP
- * publisher, ...). *)
+  *)
 
 (** Pre-classified rule set for a single target analyzer.
     - [search_rules] are all rules whose [target_analyzer] is compatible with
@@ -36,8 +32,7 @@ val classify_rules_for_analyzer :
 
     The caller is responsible for matching [analyzer_rules] to the file's
     language; passing rules for a wrong analyzer will silently produce no
-    taint entries (the engine's prefilter will reject everything) but is
-    otherwise safe. *)
+    taint entries (the engine's prefilter will reject everything) *)
 val parse_file :
   ?mode:Taint_scan_config.mode ->
   Fpath.t -> analyzer_rules -> Taint_scan_config.parsed_file

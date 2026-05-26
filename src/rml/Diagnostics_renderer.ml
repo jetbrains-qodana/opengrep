@@ -51,7 +51,7 @@ let cli_matches_of_engine_results ~(rules : Rule.t list) ~(file : Fpath.t)
   let cli_output = Output.preprocess_result ~fixed_lines:false runner_result in
   cli_output.results
 
-let render_lsp_diagnostics ~(rules : Rule.t list) ~(file : Fpath.t)
+let render_diagnostics ~(rules : Rule.t list) ~(file : Fpath.t)
     ~(xlang : Xlang.t) ~(matches : Core_match.t list)
     ~(errors : Core_error.t list) : Y.t =
   match

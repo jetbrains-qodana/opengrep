@@ -375,12 +375,10 @@ let scan_file session uri =
         Lwt.catch
           (fun () ->
             let rules = session.cached_session.rules in
-            let num_domains = Domainslib_.get_cpu_count () in
             let t0 = Unix.gettimeofday () in
             let%lwt ir_json =
               wrap_with_detach (fun () ->
-                  Taint_pipeline.parse_and_serialize_file
-                    (session.caps :> < Cap.fork >) ~num_domains ~format
+                  Taint_pipeline.parse_and_serialize_file ~format
                     ~after_file:cleanup_after_ir_ast_parse file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in

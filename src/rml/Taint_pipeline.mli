@@ -1,8 +1,7 @@
 (* Batch and single-file orchestration of the taint scan engine.
  *
- * Owns the parmap dispatch and per-file housekeeping (LSP cache cleanup,
- * GC compaction). Calls [Taint_engine] for the actual analysis and
- * [Ast_payload] for serialization. *)
+ * Calls [Taint_engine] for the actual analysis and [Ast_payload] for
+ * serialization. *)
 
 (** Run the taint engine on every file in [conf.files], dispatched across
     [conf.num_domains] worker domains, and invoke [conf.on_parsed] for each
@@ -22,13 +21,8 @@ val parse_files_ast : < Cap.fork > -> Taint_scan_config.t -> unit
 
     [~after_file] is invoked after serialisation with the same [infile] path
     (default [Fun.const ()]). The LSP uses this for per-file cache cleanup and
-    memory hygiene; keep it cheap and thread-safe if you override it.
-
-    [_caps] and [~num_domains] are accepted for API stability with existing
-    callers but are not currently used internally. *)
+    memory hygiene; keep it cheap and thread-safe if you override it. *)
 val parse_and_serialize_file :
-  < Cap.fork > ->
-  num_domains:int ->
   ?format:Ast_payload.ast_format ->
   ?after_file:(Fpath.t -> unit) ->
   Fpath.t -> Rule.t list -> string

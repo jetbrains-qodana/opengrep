@@ -17,7 +17,7 @@ let write_result_to_stdout ~(ast_format : Ast_payload.ast_format)
           parsed.ast parsed.taint_entries
   in
   let diag =
-    Diagnostics_renderer.render_lsp_diagnostics ~rules ~file:parsed.file
+    Diagnostics_renderer.render_diagnostics ~rules ~file:parsed.file
       ~xlang:parsed.xlang ~matches:parsed.matches ~errors:parsed.errors
   in
   let fields =

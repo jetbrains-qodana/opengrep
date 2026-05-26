@@ -1,8 +1,6 @@
 (* Per-domain regexp prefilter cache shared across all files processed by
  * that domain. This mirrors what Core_scan.scan_exn does: without it, every
- * rule in the rule set is evaluated against every file, which is the main
- * reason 'opengrep scan' is dramatically faster than a naive per-file
- * Match_rules.check call. The Hashtbl behind the DLS key memoizes the
+ * rule in the rule set is evaluated against every file. The Hashtbl behind the DLS key memoizes the
  * compiled per-rule prefilter regex, keyed by Rule_ID. *)
 let prefilter_cache_dls : Analyze_rule.prefilter_cache =
   Domain.DLS.new_key (fun () -> Hashtbl.create 1024)
@@ -18,10 +16,6 @@ let xconfig_with_prefilter_cache : Match_env.xconfig =
       Match_env.PrefilterWithCache prefilter_cache_dls;
   }
 
-(* Pre-classified rule set for a single target analyzer. Computing this once
- * per (analyzer, rules) instead of three times per file (the previous
- * shape) turns O(files * rules) work into O(distinct_langs * rules + files),
- * which matters for large rulesets and many files. *)
 type analyzer_rules = {
   search_rules : Rule.t list;
   taint_rules : Rule.taint_rule list;
@@ -55,6 +49,8 @@ let taint_union_prefilter_cache_dls
     : (Rule_ID.t, (string -> bool) option) Hashtbl.t Domain.DLS.key =
   Domain.DLS.new_key (fun () -> Hashtbl.create 256)
 
+(* Drop files without taint entries from analysis, because such files 
+ * has no effect on analysis result. *)
 let union_prefilter_of_taint_rule (r : Rule.taint_rule)
     : (string -> bool) option =
   let _rule_id, rule_tok = r.Rule.id in
@@ -75,14 +71,8 @@ let union_prefilter_of_taint_rule (r : Rule.taint_rule)
  * than [Analyze_rule.regexp_prefilter_of_rule] for taint rules, which
  * AND-combines sources and sinks and so would drop files containing only
  * one half of the flow. Union semantics keeps such files, which matters
- * for any future cross-file taint flow and is still sound for the current
- * intra-file engine: a file with no taint-related token cannot produce a
- * finding from this rule.
- *
- * A rule whose formulas yield no extractable prefilter ([None]) is
- * conservatively kept. The compiled per-rule predicate is memoised in
- * [taint_union_prefilter_cache_dls] so each rule's regex is compiled at
- * most once per worker domain. *)
+ * for any cross-file taint flow: a file with no taint-related token cannot 
+ * produce a finding from this rule. *)
 let prefilter_taint_rules ~(content : string)
     (rules : Rule.taint_rule list) : Rule.taint_rule list =
   let cache = Domain.DLS.get taint_union_prefilter_cache_dls in
@@ -155,8 +145,6 @@ let collect_taint_entries
       let loc = Taint_location.mk_loc_from_tok ~file_path:infile_s tok1 range in
       (rule_name, loc)
     in
-    (* Shared shape for sources/sinks/sanitizers: per-rule list of (rwm, _),
-     * mapped to a [(rule_name, loc)] entry and deduplicated. *)
     let collect_simple proj =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
@@ -189,14 +177,7 @@ let collect_taint_entries
 (* Run the search-engine on [xtarget] for the precomputed [search_rules]
  * (already filtered for analyzer compatibility and deduplicated by
  * [classify_rules_for_analyzer]). Returns the matches and errors so callers
- * can convert them into diagnostics.
- *
- * We deliberately do *not* run a separate prefilter on these rules:
- * [Match_rules.check] already does per-rule regex prefiltering with a shared
- * cache (see [xconfig_with_prefilter_cache]). The taint path can't piggy-back
- * on it because it bypasses [Match_rules.check] and calls
- * [Match_taint_spec.spec_matches_of_taint_rule] directly; that's why
- * [prefilter_taint_rules] above exists as a separate step. *)
+ * can convert them into diagnostics. *)
 let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
     (search_rules : Rule.t list) : Core_match.t list * Core_error.t list =
   if search_rules = [] then ([], [])
