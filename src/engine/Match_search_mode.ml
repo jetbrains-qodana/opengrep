@@ -410,8 +410,13 @@ let apply_focus_on_ranges (env : env) (focus_mvars_list : R.focus_mv_list list)
     let focus_matches =
       fm_mval_range_locs
       |> List_.map (fun (focus_mvar, mval, range_loc) ->
+             let pattern_string =
+               match range.RM.origin.rule_id.pattern_string with
+               | "" -> focus_mvar
+               | pattern_string -> pattern_string
+             in
              {
-               PM.rule_id = fake_rule_id (-1, focus_mvar);
+               PM.rule_id = fake_rule_id (-1, pattern_string);
                path = env.xtarget.path;
                range_loc;
                (* as-metavariable: *)

@@ -6468,15 +6468,23 @@ let collect_taint_entries
     ((sources, sinks, sanitizers, propagators) : Taint_serializer.taint_entries_t)
     (pool : string_pool_builder) : unit =
   let collect_loc (loc : Taint_location.taint_location) = add_string pool loc.file_path in
-  let collect_entry (rule, loc) =
-    add_string pool rule;
-    collect_loc loc
+  let collect_pattern = function
+    | None -> ()
+    | Some pattern -> add_string pool pattern
   in
-  let collect_prop (rule, loc, loc_from, loc_to) =
+  let collect_entry ({ rule; loc; pattern } : Taint_serializer.taint_entry) =
     add_string pool rule;
     collect_loc loc;
-    collect_loc loc_from;
-    collect_loc loc_to
+    collect_pattern pattern
+  in
+  let collect_prop
+      ({ rule; loc; locFrom; locTo; pattern } :
+        Taint_serializer.taint_propagator_entry) =
+    add_string pool rule;
+    collect_loc loc;
+    collect_loc locFrom;
+    collect_loc locTo;
+    collect_pattern pattern
   in
   List.iter collect_entry sources;
   List.iter collect_entry sinks;
@@ -6498,17 +6506,28 @@ let serialize_taint_entries
     List.length sources + List.length sinks + List.length sanitizers + List.length propagators
   in
   write_int32 buf total;
-  let write_entry kind (rule, loc) =
+  let write_pattern = function
+    | None -> write_int32 buf 0
+    | Some pattern ->
+        write_int32 buf 1;
+        write_string buf pool pattern
+  in
+  let write_entry kind ({ rule; loc; pattern } : Taint_serializer.taint_entry)
+      =
     write_int32 buf kind;
     write_string buf pool rule;
+    write_pattern pattern;
     write_location buf pool loc
   in
-  let write_prop kind (rule, loc, loc_from, loc_to) =
+  let write_prop kind
+      ({ rule; loc; locFrom; locTo; pattern } :
+        Taint_serializer.taint_propagator_entry) =
     write_int32 buf kind;
     write_string buf pool rule;
+    write_pattern pattern;
     write_location buf pool loc;
-    write_location buf pool loc_from;
-    write_location buf pool loc_to
+    write_location buf pool locFrom;
+    write_location buf pool locTo
   in
   List.iter (write_entry 0) sources;
   List.iter (write_entry 1) sinks;
