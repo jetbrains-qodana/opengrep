@@ -102,18 +102,38 @@ let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
   }
 
 (* Dedup key for taint entries (sources/sinks/sanitizers). *)
-let taint_entry_key (rule_name, loc : string * Taint_location.taint_location) =
-  Printf.sprintf "%s:%s" rule_name (Taint_location.loc_string loc)
+let taint_entry_key ({ rule; loc; _ } : Taint_serializer.taint_entry) =
+  Printf.sprintf "%s:%s" rule (Taint_location.loc_string loc)
 
 (* Dedup key for propagators. *)
-let propagator_key (rule_name, loc, locFrom, locTo
-    : string * Taint_location.taint_location
-      * Taint_location.taint_location * Taint_location.taint_location) =
+let propagator_key
+    ({ rule; loc; locFrom; locTo; _ } : Taint_serializer.taint_propagator_entry)
+    =
   Printf.sprintf "%s:%s:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d"
-    rule_name
+    rule
     loc.file_path loc.line loc.col loc.offsetStart loc.offsetEnd
     locFrom.line locFrom.col locFrom.offsetStart locFrom.offsetEnd
     locTo.line locTo.col
+
+let string_of_taint_formula (formula : Rule.formula) =
+  let rec go formula =
+    match formula.Rule.f with
+    | Rule.P p -> fst p.Xpattern.pstr
+    | Rule.Anywhere (_, formula)
+    | Rule.Inside (_, formula)
+    | Rule.Not (_, formula) ->
+        go formula
+    | Rule.Or (_, formulas)
+    | Rule.And (_, formulas) ->
+        formulas |> List_.map go |> String.concat "\n"
+  in
+  let pattern = go formula in
+  if pattern = "" then None else Some pattern
+
+let matched_pattern_of_range (rwm : Range_with_metavars.t) =
+  match rwm.Range_with_metavars.origin.Core_match.rule_id.pattern_string with
+  | "" -> None
+  | pattern -> Some pattern
 
 let collect_taint_entries
     ~(infile_s : string)
@@ -138,30 +158,40 @@ let collect_taint_entries
               Some (fst rule.Rule.id, spec_matches))
         taint_rules
     in
-    let make_taint_entry rule_id rwm =
+    let make_taint_entry rule_id fallback_pattern rwm =
       let range = rwm.Range_with_metavars.r in
       let tok1, _tok2 = rwm.Range_with_metavars.origin.Core_match.range_loc in
       let rule_name = Rule_ID.to_string rule_id in
       let loc = Taint_location.mk_loc_from_tok ~file_path:infile_s tok1 range in
-      (rule_name, loc)
+      let pattern =
+        match matched_pattern_of_range rwm with
+        | Some _ as pattern -> pattern
+        | None -> fallback_pattern
+      in
+      { Taint_serializer.rule = rule_name; loc; pattern }
     in
-    let collect_simple proj =
+    let collect_simple proj formula =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              proj spec_matches
-             |> List.map (fun (rwm, _spec) -> make_taint_entry rule_id rwm))
+             |> List.map (fun (rwm, spec) ->
+                    make_taint_entry rule_id (string_of_taint_formula @@ formula spec) rwm
+                ))
       |> List_.deduplicate_gen ~get_key:taint_entry_key
     in
-    let taint_sources    = collect_simple (fun sm -> sm.Match_taint_spec.sources)    in
-    let taint_sinks      = collect_simple (fun sm -> sm.Match_taint_spec.sinks)      in
-    let taint_sanitizers = collect_simple (fun sm -> sm.Match_taint_spec.sanitizers) in
+    let taint_sources    = collect_simple (fun sm -> sm.Match_taint_spec.sources) (fun (t) -> t.Rule.source_formula)    in
+    let taint_sinks      = collect_simple (fun sm -> sm.Match_taint_spec.sinks) (fun (t) -> t.Rule.sink_formula)      in
+    let taint_sanitizers = collect_simple (fun sm -> sm.Match_taint_spec.sanitizers) (fun (t) -> t.Rule.sanitizer_formula) in
     let taint_propagators =
       taint_configs_and_matches
       |> List.concat_map (fun (rule_id, spec_matches) ->
              spec_matches.Match_taint_spec.propagators
              |> List.map (fun (prop_match : Match_taint_spec.propagator_match) ->
-                    let rule_name, loc =
-                      make_taint_entry rule_id prop_match.rwm
+                    let entry =
+                      make_taint_entry rule_id
+                        (string_of_taint_formula
+                           prop_match.spec.Rule.propagator_formula)
+                        prop_match.rwm
                     in
                     let locFrom =
                       Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.from
@@ -169,7 +199,13 @@ let collect_taint_entries
                     let locTo =
                       Taint_location.mk_loc_from_range ~file_path:infile_s prop_match.to_
                     in
-                    (rule_name, loc, locFrom, locTo)))
+                    {
+                      Taint_serializer.rule = entry.rule;
+                      loc = entry.loc;
+                      locFrom;
+                      locTo;
+                      pattern = entry.pattern;
+                    }))
       |> List_.deduplicate_gen ~get_key:propagator_key
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
