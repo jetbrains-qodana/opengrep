@@ -89,6 +89,7 @@ let known_subcommands =
     (* osemgrep-only *)
     "install-ci";
     "show";
+    "taint";
     "test";
     "validate";
     (* pro-only and osemgrep-only *)
@@ -151,6 +152,7 @@ let dispatch_subcommand (caps : caps) (argv : string array) =
         | "install-ci" -> Install_ci_subcommand.main caps subcmd_argv
         | "interactive" -> !hook_semgrep_interactive subcmd_argv
         | "show" -> Show_subcommand.main caps subcmd_argv
+        | "taint" -> Taint_subcommand.main caps subcmd_argv
         | "test" -> Test_subcommand.main caps subcmd_argv
         | "validate" -> Validate_subcommand.main caps subcmd_argv
         | _ ->

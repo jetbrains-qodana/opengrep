@@ -694,10 +694,3 @@ build-core-bytecode:
 	@echo "  bin/opengrep-core.bc"
 	@echo "  bin/opengrep.bc"
 	@echo "Use ocamldebug with: ocamldebug bin/opengrep-core.bc -- <args>"
-
-.PHONY: build-taint-json
-build-taint-json:
-	dune build $(BUILD_DEFAULT)/src/rml/Taint_json.bc
-	@mkdir -p bin
-	cp $(BUILD_DEFAULT)/src/rml/Taint_json.bc bin/taint-json.bc
-	@echo "Built bin/taint-json.bc"

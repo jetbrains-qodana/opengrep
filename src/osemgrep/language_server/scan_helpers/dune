@@ -9,6 +9,7 @@
    semgrep.language_server.util
    semgrep.osemgrep_reporting
    semgrep.rml
+   semgrep.memory_release
    parallelism
  )
  (preprocess

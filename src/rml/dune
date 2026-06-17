@@ -2,32 +2,17 @@
  (public_name semgrep.rml)
  (name semgrep_rml)
  (wrapped false)
- (modules Ast_binary_serializer Taint_location Taint_serializer Taint_processor)
  (libraries
   semgrep.il
   ast_generic
+  base64
   commons
   yojson
   semgrep.tainting
   semgrep.core_scan
+  ; for the LSP-style diagnostics renderer in Diagnostics_renderer.
+  semgrep.core_runner
+  semgrep.osemgrep_reporting
   parallelism
-  semgrep.memory_release
+  logs.fmt
  ))
-
-
-(executables
- (names Taint_json)
- (modules Taint_json)
- (flags
-  (:standard -open TCB -open Commons_TCB))
- (libraries
-  TCB
-  unix
-  semgrep.core_cli
-  semgrep.osemgrep_cli
-  semgrep.rml
-  ; implementations of dune virtual modules
-  lwt_platform.unix)
- (preprocess
-  (pps ppx_profiling))
- (modes native byte))

@@ -474,6 +474,7 @@ For more information see https://opengrep.dev.
     logs
     ; JSON/YAML/XML
     atdgen
+    (base64 (>= 3.0.0))
     (yojson (>= 2.0.0))
     yaml
     xmlm

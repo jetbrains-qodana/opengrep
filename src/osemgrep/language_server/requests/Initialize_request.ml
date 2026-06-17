@@ -43,9 +43,6 @@ let initialize_server server
     let scan_on_miss =
       initializationOptions |> member "scanOnMiss" |> to_bool_option
     in
-    let skip_taint =
-      initializationOptions |> member "skipTaint" |> to_bool_option
-    in
     let disable_target_cache =
       initializationOptions |> member "disableTargetCache" |> to_bool_option
     in
@@ -76,11 +73,6 @@ let initialize_server server
       | Some v -> Some v
       | None -> res.scan_on_miss
     in
-    let skip_taint =
-      match skip_taint with
-      | Some v -> Some v
-      | None -> res.skip_taint
-    in
     let disable_target_cache =
       match disable_target_cache with
       | Some v -> v
@@ -97,7 +89,6 @@ let initialize_server server
       pro_intrafile;
       handle_ast;
       scan_on_miss;
-      skip_taint;
       disable_target_cache;
       sane_stderr;
     }
