@@ -7,6 +7,12 @@
  *)
 type prefilter = Semgrep_prefilter_t.formula * (string -> bool)
 
+(* Raised by [regexp_prefilter_of_formula] when converting the formula to CNF
+ * blows up combinatorially. [regexp_prefilter_of_rule] catches this internally
+ * (falling back to no prefilter), but callers of [regexp_prefilter_of_formula]
+ * must handle it themselves. *)
+exception CNF_exploded
+
 (* Computing the `regex_prefilter_of_rule` can be pretty heavy in
    Previously, we created hmemo at the toplevel of this file. This caused
       problems with tests that ended up reusing that table which were very

@@ -53,14 +53,24 @@ let taint_union_prefilter_cache_dls
  * has no effect on analysis result. *)
 let union_prefilter_of_taint_rule (r : Rule.taint_rule)
     : (string -> bool) option =
-  let _rule_id, rule_tok = r.Rule.id in
+  let rule_id, rule_tok = r.Rule.id in
   match Rule.formulas_of_mode (r.Rule.mode :> Rule.mode) with
   | [] -> None
-  | formulas ->
+  | formulas -> (
       let f = Rule.f (Rule.Or (rule_tok, formulas)) in
-      Analyze_rule.regexp_prefilter_of_formula
-        ~xlang:r.Rule.target_analyzer f
-      |> Option.map snd
+      try
+        Analyze_rule.regexp_prefilter_of_formula
+          ~xlang:r.Rule.target_analyzer f
+        |> Option.map snd
+      with
+      | Analyze_rule.CNF_exploded ->
+          Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+            m "CNF size exploded on rule id %s" (Rule_ID.to_string rule_id));
+          None
+      | Stack_overflow ->
+          Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+            m "Stack overflow on rule id %s" (Rule_ID.to_string rule_id));
+          None)
 
 (* Drop taint rules whose union regexp prefilter rejects [content]. Keeps
  * order.
