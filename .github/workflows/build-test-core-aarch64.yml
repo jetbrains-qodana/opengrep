@@ -6,7 +6,13 @@ on:
       - linux/**
     paths-ignore:
       - '**.md'
-  workflow_call: null
+  workflow_call:
+    inputs:
+      version:
+        description: Version string to embed in the build (empty = use the committed version).
+        required: false
+        default: ""
+        type: string
   workflow_dispatch: null
 
 jobs:
@@ -27,6 +33,12 @@ jobs:
 
       - name: Configure git safedir properly
         run: git config --global --add safe.directory $(pwd)
+
+      # Patched host-side; the workspace is mounted into the Alpine build container below.
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
 
       - name: Set GHA cache for OPAM
         id: cache-opam-linux-aarch64
@@ -79,6 +91,12 @@ jobs:
         with:
           name: opengrep-core-aarch64
 
+      # Patched host-side; the workspace is mounted into the wheel build container below.
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
+
       - name: Install Docker on ARM runner
         uses: ./.github/actions/install-docker-arm64
 
@@ -110,3 +128,4 @@ jobs:
     uses: ./.github/workflows/build-test-manylinux.yml
     with:
       arch: aarch64
+      version: ${{ inputs.version }}

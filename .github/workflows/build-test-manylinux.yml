@@ -7,6 +7,11 @@ on:
         required: false
         default: "x86_64"
         type: string
+      version:
+        description: Version string to embed in the build (empty = use the committed version).
+        required: false
+        default: ""
+        type: string
   workflow_dispatch: null
   # workflow_run:
   #   workflows:
@@ -34,6 +39,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           submodules: true
+
+      # Patches the workspace (host-side for aarch64, in-container for x86_64);
+      # the aarch64 build below mounts this same workspace into Docker.
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
 
       - name: Install Docker (ARM64 only)
         if: inputs.arch != 'x86_64'
