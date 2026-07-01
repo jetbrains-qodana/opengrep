@@ -104,7 +104,7 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
    * [semgrep.ir-pipeline] only. [init_taint_subcommand_logging] replaces the
    * default reporter from [CLI.main] so other sources' [Logs] traffic does
    * not flood stderr. *)
-  Ir_pipeline_logs.init_taint_subcommand_logging ();
+  Ir_pipeline_logs.init_taint_subcommand_logging ~level:conf.logging_level ();
 
   Parsing_init.init ();
 

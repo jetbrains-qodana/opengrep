@@ -9,6 +9,8 @@ type conf = {
   format : [ `Json | `Binary ];
   jobs : int;
   with_diagnostics : bool;
+  (* mix of --verbose/--debug; controls how much the pipeline logs to stderr *)
+  logging_level : Logs.level option;
 }
 
 (* entry point *)
