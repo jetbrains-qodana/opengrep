@@ -34,5 +34,8 @@ val classify_rules_for_analyzer :
     language; passing rules for a wrong analyzer will silently produce no
     taint entries (the engine's prefilter will reject everything) *)
 val parse_file :
+  < Cap.time_limit > ->
   ?mode:Taint_scan_config.mode ->
+  ?timeout:float option ->
+  ?timeout_threshold:int option ->
   Fpath.t -> analyzer_rules -> Taint_scan_config.parsed_file

@@ -378,8 +378,9 @@ let scan_file session uri =
             let t0 = Unix.gettimeofday () in
             let%lwt ir_json =
               wrap_with_detach (fun () ->
-                  Taint_pipeline.parse_and_serialize_file ~format
-                    ~after_file:cleanup_after_ir_ast_parse file rules)
+                  Taint_pipeline.parse_and_serialize_file
+                    (session.caps :> < Cap.time_limit >)
+                    ~format ~after_file:cleanup_after_ir_ast_parse file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in
             if not (document_version_is_current ()) then (

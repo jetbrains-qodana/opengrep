@@ -11,8 +11,8 @@
 (*****************************************************************************)
 (* Types and constants *)
 (*****************************************************************************)
-(* we need Cap.fork for parallel rule evaluation *)
-type caps = < Cap.fork >
+(* Cap.fork for parallel rule evaluation; Cap.time_limit for taint per-rule timeouts. *)
+type caps = < Cap.fork ; Cap.time_limit >
 
 (*****************************************************************************)
 (* Helpers *)
@@ -117,10 +117,12 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
     Exit_code.ok ~__LOC__)
   else (
     Taint_pipeline.parse_files_ast
-      (caps :> < Cap.fork >)
+      (caps :> < Cap.fork ; Cap.time_limit >)
       {
         num_domains = conf.jobs;
         mode = if conf.with_diagnostics then `All else `Taint;
+        timeout = conf.timeout;
+        timeout_threshold = conf.timeout_threshold;
         on_parsed =
           Stdout_emitter.write_result_to_stdout
             ~ast_format:conf.format ~rules;
