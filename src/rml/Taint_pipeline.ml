@@ -92,14 +92,16 @@ let parse_files_ast (caps : < Cap.fork ; Cap.time_limit >)
     m "Total time - %.2f ms; average time - %s" glob_elapsed_ms avg_ms_str)
 
 let parse_and_serialize_file (caps : < Cap.time_limit >) ?(format = `Json)
-    ?(after_file = Fun.const ()) (infile : Fpath.t) (rules : Rule.t list) :
-    string =
+    ?(after_file = Fun.const ()) ?(timeout : float option = None)
+    ?(timeout_threshold : int option = None) (infile : Fpath.t)
+    (rules : Rule.t list) : string =
   let lang = Lang.lang_of_filename_exn infile in
   let ar =
     Taint_engine.classify_rules_for_analyzer
       ~analyzer:(Xlang.of_lang lang) rules
   in
-  let parsed = Taint_engine.parse_file caps infile ar
+  let parsed =
+    Taint_engine.parse_file ~timeout ~timeout_threshold caps infile ar
   in
   let result =
     match format with

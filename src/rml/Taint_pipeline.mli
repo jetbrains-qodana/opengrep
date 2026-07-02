@@ -27,4 +27,6 @@ val parse_and_serialize_file :
   < Cap.time_limit > ->
   ?format:Ast_payload.ast_format ->
   ?after_file:(Fpath.t -> unit) ->
+  ?timeout:float option ->
+  ?timeout_threshold:int option ->
   Fpath.t -> Rule.t list -> string
