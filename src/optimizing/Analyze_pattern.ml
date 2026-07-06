@@ -196,3 +196,35 @@ let extract_mvars_in_id_position ?lang:_ any =
   in
   visitor#visit_any () any;
   visitor#get_mvars
+
+(* Extract metavariables that appear as the entire content of a string literal,
+ * e.g. the pattern '"$ARG0"' produces a string literal whose content is the
+ * metavar name "$ARG0".
+ *
+ * This is used together with `metavariable-regex` conditions: if a mvar is
+ * bound to a string literal in the source file, the string value IS present
+ * verbatim in the file, so we can safely use the regex for pre-filtering.
+ *
+ * Note: this is an overapproximation analogous to id-position mvars. It can
+ * produce false negatives only when the string (e.g. "FooBar") is built via constant folding
+ * (e.g. "Foo" + "Bar"), which is rare for cryptographic algorithm names.
+ *)
+class ['self] extract_mvars_in_string_position_visitor =
+    object (_self : 'self)
+      inherit [_] AST_generic.iter_no_id_info as super
+
+      val mutable mvars = MvarSet.empty
+
+      method get_mvars = mvars
+
+      method! visit_expr env x =
+        match x.e with
+        | L (String (_, (str, _tok), _)) when Mvar.is_metavar_name str ->
+            mvars <- MvarSet.add str mvars
+        | _ -> super#visit_expr env x
+    end
+
+let extract_mvars_in_string_position ?lang:_ any =
+  let visitor = new extract_mvars_in_string_position_visitor in
+  visitor#visit_any () any;
+  visitor#get_mvars
