@@ -16,3 +16,11 @@ val extract_strings_and_mvars :
    we can use the corresponding `regex` for pre-filtering.
 *)
 val extract_mvars_in_id_position : ?lang:Lang.t -> Pattern.t -> mvars
+
+(*
+   Extract metavariables that appear as the entire content of a string-literal
+   pattern (e.g. the pattern '"$ARG0"').  When we also have a
+   `metavariable-regex` on such a metavariable, the regex value must be present
+   verbatim in the source file, so we can use it for pre-filtering.
+*)
+val extract_mvars_in_string_position : ?lang:Lang.t -> Pattern.t -> mvars

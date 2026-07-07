@@ -289,6 +289,17 @@ let id_mvars_of_formula f =
                |> MvarSet.union acc 
          | __else__ -> acc) f MvarSet.empty(* simple for now, don't do any conversion *)
 
+(* Like id_mvars_of_formula but collects metavariables that appear as the
+ * entire content of a string-literal pattern (e.g. '"$ARG0"').
+ * See Analyze_pattern.extract_mvars_in_string_position for rationale. *)
+let string_mvars_of_formula f =
+  Visit_rule.visit_xpatterns (fun xp ~inside:_ acc ->
+    match xp with
+    | { pat = XP.Sem (pat, lang); _ } ->
+        Analyze_pattern.extract_mvars_in_string_position ~lang pat
+        |> MvarSet.union acc
+    | __else__ -> acc) f MvarSet.empty
+
 (*
 let rec (and_step1: Rule.formula -> cnf_step1) = fun f ->
   match f with
@@ -606,7 +617,9 @@ let regexp_prefilter_of_formula ~xlang f : prefilter option =
         Fun.const true
     | L _ ->
         let id_mvars = id_mvars_of_formula f in
-        fun mvar -> MvarSet.mem mvar id_mvars
+        let string_mvars = string_mvars_of_formula f in
+        fun mvar ->
+          MvarSet.mem mvar id_mvars || MvarSet.mem mvar string_mvars
   in
   try
     let* final = compute_final_cnf ~is_id_mvar f in
