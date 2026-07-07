@@ -378,7 +378,11 @@ let scan_file session uri =
             let t0 = Unix.gettimeofday () in
             let%lwt ir_json =
               wrap_with_detach (fun () ->
-                  Taint_pipeline.parse_and_serialize_file ~format
+                  Taint_pipeline.parse_and_serialize_file
+                    (session.caps :> < Cap.time_limit >)
+                    ~format
+                    ~timeout:session.user_settings.taint_timeout
+                    ~timeout_threshold:session.user_settings.taint_timeout_threshold
                     ~after_file:cleanup_after_ir_ast_parse file rules)
             in
             let dt = Unix.gettimeofday () -. t0 in

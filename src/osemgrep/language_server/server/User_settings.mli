@@ -20,6 +20,8 @@ type t = {
   do_hover : bool;
   pro_intrafile : bool;
   handle_ast : string;
+  taint_timeout : float option;
+  taint_timeout_threshold : int option;
 }
 
 val default : t

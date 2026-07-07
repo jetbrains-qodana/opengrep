@@ -145,27 +145,48 @@ let matched_pattern_of_range (rwm : Range_with_metavars.t) =
   | "" -> None
   | pattern -> Some pattern
 
-let collect_taint_entries
-    ~(infile_s : string)
-    ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
-    Taint_serializer.taint_entries_t =
+let collect_taint_entries (caps : < Cap.time_limit >)
+    ~(timeout : float option) ~(timeout_threshold : int option)
+    ~(infile_s : string) ~(ast : AST_generic.program)
+    (taint_rules : Rule.taint_rule list) : Taint_serializer.taint_entries_t =
   if taint_rules = [] then Ast_payload.empty_taint_entries
   else
     let formula_cache = Formula_cache.mk_specialized_formula_cache taint_rules in
+    let timed_out = ref [] in
+    let run_spec (rule : Rule.taint_rule) =
+      let f () =
+        Match_taint_spec.spec_matches_of_taint_rule
+          ~per_file_formula_cache:formula_cache xconfig_with_prefilter_cache
+          infile_s (ast, []) rule
+      in
+      match timeout with
+      | None -> Some (f ())
+      | Some t ->
+          Time_limit.set_timeout caps
+            ~name:"Taint_engine.collect_taint_entries" t f
+    in
     let taint_configs_and_matches =
       List.filter_map
         (fun (rule : Rule.taint_rule) ->
-          let spec_matches, _expls =
-            Match_taint_spec.spec_matches_of_taint_rule
-              ~per_file_formula_cache:formula_cache xconfig_with_prefilter_cache
-              infile_s (ast, []) rule
-          in
-          match spec_matches with
-          | { Match_taint_spec.sources = []; sinks = [];
-              sanitizers = []; propagators = [] } ->
+          match run_spec rule with
+          | None ->
+              let rule_id = fst rule.Rule.id in
+              timed_out := rule_id :: !timed_out;
+              Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+                m "Timeout on taint rule %s in %s" (Rule_ID.to_string rule_id)
+                  infile_s);
+              (match timeout_threshold with
+              | Some n when n > 0 && List.length !timed_out >= n ->
+                  raise (Match_rules.File_timeout !timed_out)
+              | _ -> ());
               None
-          | _ ->
-              Some (fst rule.Rule.id, spec_matches))
+          | Some (spec_matches, _expls) -> (
+              match spec_matches with
+              | { Match_taint_spec.sources = []; sinks = [];
+                  sanitizers = []; propagators = [] } ->
+                  None
+              | _ ->
+                  Some (fst rule.Rule.id, spec_matches)))
         taint_rules
     in
     let make_taint_entry rule_id fallback_pattern rwm =
@@ -224,27 +245,38 @@ let collect_taint_entries
  * (already filtered for analyzer compatibility and deduplicated by
  * [classify_rules_for_analyzer]). Returns the matches and errors so callers
  * can convert them into diagnostics. *)
-let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
-    (search_rules : Rule.t list) : Core_match.t list * Core_error.t list =
+let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
+    ~(timeout : float option) ~(timeout_threshold : int option)
+    (xtarget : Xtarget.t) (search_rules : Rule.t list) :
+    Core_match.t list * Core_error.t list =
   if search_rules = [] then ([], [])
   else
-    try
-      let res =
-        Match_rules.check
-          ~match_hook:(fun _ -> ())
-          ~timeout:None
-          xconfig_with_prefilter_cache
-          search_rules
-          xtarget
-      in
-      (res.matches, Core_error.ErrorSet.elements res.errors)
-    with
-    | Match_rules.File_timeout rule_ids ->
-        Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
-          m
-            "File timeout while computing diagnostics, rules: %s"
-            (rule_ids |> List_.map Rule_ID.to_string |> String.concat ","));
-        ([], [])
+    let timeout_config =
+      match timeout with
+      | None -> None
+      | Some t ->
+          Some
+            Match_rules.
+              {
+                timeout = t;
+                allow_rule_timeout_control = false;
+                dynamic_timeout = false;
+                dynamic_timeout_max_multiplier = -1;
+                dynamic_timeout_unit_kb = -1;
+                threshold =
+                  (match timeout_threshold with Some n -> n | None -> 0);
+                caps;
+              }
+    in
+    let res =
+      Match_rules.check
+        ~match_hook:(fun _ -> ())
+        ~timeout:timeout_config
+        xconfig_with_prefilter_cache
+        search_rules
+        xtarget
+    in
+    (res.matches, Core_error.ErrorSet.elements res.errors)
 
 (* Per-file pipeline: parse + naming + (optional) search engine + (optional)
  * taint engine. See [parse_file]'s doc in the .mli for the public contract.
@@ -252,8 +284,10 @@ let run_rules_engine_for_diagnostics (xtarget : Xtarget.t)
  * Two short-circuit paths:
  *   - [mode = `Taint] skips [run_rules_engine_for_diagnostics] entirely.
  *   - [ar.taint_rules = []] skips the prefilter + taint engine entirely. *)
-let parse_file ?(mode: Taint_scan_config.mode = `Taint)
-    (infile : Fpath.t) (ar : analyzer_rules) : Taint_scan_config.parsed_file =
+let parse_file (caps : < Cap.time_limit >)
+    ?(mode : Taint_scan_config.mode = `Taint) ?(timeout : float option = Some 5.0)
+    ?(timeout_threshold : int option = Some 3) (infile : Fpath.t)
+    (ar : analyzer_rules) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
   let parse_result = Parse_target.just_parse_with_lang lang infile in
@@ -271,7 +305,9 @@ let parse_file ?(mode: Taint_scan_config.mode = `Taint)
   in
   let matches, errors =
     match mode with
-    | `All -> run_rules_engine_for_diagnostics xtarget ar.search_rules
+    | `All ->
+        run_rules_engine_for_diagnostics caps ~timeout ~timeout_threshold
+          xtarget ar.search_rules
     | `Taint -> ([], [])
   in
   match ar.taint_rules with
@@ -283,7 +319,7 @@ let parse_file ?(mode: Taint_scan_config.mode = `Taint)
           taint_rules
       in
       let taint_entries =
-        collect_taint_entries
+        collect_taint_entries caps ~timeout ~timeout_threshold
           ~infile_s:(Fpath.to_string infile) ~ast taint_rules
       in
       mk_parsed ~taint_entries ~matches ~errors ()
