@@ -20,6 +20,8 @@ type t = {
   files : Fpath.t list;
   rules : Rule.t list;
   mode : mode;
+  timeout : float option;
+  timeout_threshold : int option;
   on_parsed : parsed_file -> unit;
 }
 [@@deriving show]

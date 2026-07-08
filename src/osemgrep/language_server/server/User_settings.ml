@@ -53,6 +53,13 @@ type t = {
   do_hover : bool; [@default false]
   pro_intrafile : bool; [@default false]
   handle_ast : string; [@key "handleAST"] [@default "off"]
+  (* Per-rule wall-clock timeout (seconds) for the [handleAST] taint pipeline.
+   * [None] (the default) means no timeout is applied. *)
+  taint_timeout : float option; [@key "taintTimeout"] [@default None]
+  (* Number of per-rule timeouts on one file after which the file is abandoned
+   * in the [handleAST] taint pipeline. [None] (the default) disables it. *)
+  taint_timeout_threshold : int option;
+    [@key "taintTimeoutThreshold"] [@default None]
 }
 [@@deriving yojson]
 
