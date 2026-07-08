@@ -2,8 +2,8 @@
    Parse AST+taint JSON for a list of files read from stdin.
 *)
 
-(* we need Cap.fork for parallel rule evaluation *)
-type caps = < Cap.fork >
+(* Cap.fork for parallel rule evaluation; Cap.time_limit for taint per-rule timeouts. *)
+type caps = < Cap.fork ; Cap.time_limit >
 
 (*
    Parse an 'opengrep taint' command, execute it and return an exit code.

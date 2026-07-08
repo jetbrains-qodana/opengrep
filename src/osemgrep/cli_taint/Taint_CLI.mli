@@ -9,6 +9,9 @@ type conf = {
   format : [ `Json | `Binary ];
   jobs : int;
   with_diagnostics : bool;
+  timeout : float option;
+  timeout_threshold : int option;
+  logging_level : Logs.level option;
 }
 
 (* entry point *)
