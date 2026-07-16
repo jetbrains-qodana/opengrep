@@ -1,0 +1,29 @@
+rules:
+  - id: test
+    languages:
+      - java
+    message: Test
+    mode: taint
+    pattern-sinks:
+      - exact: false
+        pattern-either:
+          - patterns:
+              - pattern: java.security.Signature.getInstance($ARG0)
+              - focus-metavariable: $ARG0
+              - metavariable-type:
+                  metavariable: $ARG0
+                  type: String
+          - patterns:
+              - pattern: java.security.Signature.getInstance($ARG0, $ARG1)
+              - focus-metavariable: $ARG0
+              - metavariable-type:
+                  metavariable: $ARG0
+                  type: String
+    pattern-sources:
+      - exact: false
+        patterns:
+          - pattern: '"$ARG0"'
+          - metavariable-regex:
+              metavariable: $ARG0
+              regex: (EdDSA)$
+    severity: WARNING
