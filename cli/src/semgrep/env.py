@@ -133,7 +133,7 @@ class Env:
 
     @user_log_file.default
     def user_log_file_default(self) -> Path:
-        path = os.getenv("SEMGREP_LOG_FILE", str(self.user_data_folder / "semgrep.log"))
+        path = os.getenv("SEMGREP_LOG_FILE", str(self.user_data_folder / "semgrep-qodana.log"))
         return Path(path)
 
     @user_settings_file.default
