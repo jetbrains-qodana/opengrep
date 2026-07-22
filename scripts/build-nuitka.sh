@@ -13,6 +13,13 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
+# Nuitka's --product-version only accepts a numeric X.Y.Z[.W] version. VERSION
+# may carry a leading 'v' and a PEP 440 pre-release/local suffix (e.g. the
+# "+qodana" segment), so strip everything from the first '-' or '+' to get a
+# plain numeric version. The full VERSION is still used for paths/tempdir below.
+PRODUCT_VERSION="${VERSION#v}"
+PRODUCT_VERSION="${PRODUCT_VERSION%%[-+]*}"
+
 EXTRA_ARGS=()
 
 # On linux we only compile to --onefile if forced using FORCE_ONEFILE.
@@ -54,7 +61,7 @@ pushd cli
   --standalone \
   "${EXTRA_ARGS[@]}" \
   --product-name=opengrep \
-  --product-version="${VERSION:1}" \
+  --product-version="$PRODUCT_VERSION" \
   --file-description="Opengrep CLI" \
   --output-filename=opengrep \
   --include-data-dir="$SRC_SEMGREP_DIR/templates=semgrep/templates" \

@@ -19,6 +19,11 @@ on:
         description: Use Opam Cache - uncheck the box to disable use of the opam cache, meaning a long-running but completely from-scratch build.
         required: false
         type: boolean
+      version:
+        description: Version string to embed in the build (empty = use the committed version).
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       use-cache:
@@ -45,6 +50,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           submodules: true
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
       - env:
           SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
         # if: ${{ inputs.use-cache == 'true' || inputs.use-cache == '' }}
@@ -138,6 +147,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
         with:
           submodules: true
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: opengrep-osx-${{ inputs.arch == 'x86_64' && 'x86' || 'arm64' }}

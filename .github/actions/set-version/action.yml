@@ -1,0 +1,36 @@
+name: Set opengrep version
+description: >-
+  Patch the opengrep version into every source file that carries it, before the
+  binary/wheel is built. No-op when the version input is empty, so push/PR builds
+  keep the repository's committed version.
+
+inputs:
+  version:
+    description: >-
+      Version string to embed (e.g. "qodana-v1.2.3"). When empty, the version in
+      the repository is left untouched.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set opengrep version
+      if: ${{ inputs.version != '' }}
+      shell: bash
+      # The version comes from a user-controlled workflow input, so pass it via
+      # the environment instead of interpolating it into the script body.
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        echo "Setting opengrep version to: $VERSION"
+
+        # Delegates to the same script scripts/release/bump uses, so the build
+        # stamps the exact same version-bearing files the release flow does.
+        bash scripts/release/set-version-in-files.sh "$VERSION"
+
+        echo "Version.ml:   $(grep 'let version'  src/core/Version.ml)"
+        echo "__init__.py:  $(grep '__VERSION__' cli/src/semgrep/__init__.py)"
+        echo "cli/setup.py: $(grep '^    version=' cli/setup.py)"

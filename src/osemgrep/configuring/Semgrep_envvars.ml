@@ -145,7 +145,7 @@ let of_current_sys_env () : t =
     user_home_dir;
     user_dot_semgrep_dir;
     user_log_file =
-      env_or Fpath.v "OPENGREEP_LOG_FILE" (user_dot_semgrep_dir / "semgrep.log");
+      env_or Fpath.v "OPENGREEP_LOG_FILE" (user_dot_semgrep_dir / "semgrep-qodana.log");
     no_color = env_truthy "NO_COLOR" || env_truthy "SEMGREP_COLOR_NO_COLOR";
     is_ci = in_env "CI";
     in_docker = in_env "SEMGREP_IN_DOCKER";

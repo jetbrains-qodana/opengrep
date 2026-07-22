@@ -11,7 +11,13 @@ on:
       - main
     paths-ignore:
       - '**.md'
-  workflow_call: null
+  workflow_call:
+    inputs:
+      version:
+        description: Version string to embed in the build (empty = use the committed version).
+        required: false
+        default: ""
+        type: string
   workflow_dispatch: null
 
 # concurrency:
@@ -51,6 +57,11 @@ jobs:
           apk add --no-cache build-base zip bash libffi-dev \
             libpsl-static zstd-static libidn2-static \
             libunistring-static tar zstd
+
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
 
       - name: Set GHA cache for OPAM
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache@v4
@@ -112,7 +123,11 @@ jobs:
           submodules: true
       - run: |
           apk update
-          apk add --no-cache zip python3 py3-pip py3-virtualenv python3-dev gcc musl-dev
+          apk add --no-cache zip bash python3 py3-pip py3-virtualenv python3-dev gcc musl-dev
+      - name: Set opengrep version
+        uses: ./.github/actions/set-version
+        with:
+          version: ${{ inputs.version }}
       - uses: actions/download-artifact@b14cf4c92620c250e1c074ab0a5800e37df86765 # ratchet:actions/download-artifact@v4
         with:
           name: opengrep-core-x86
@@ -132,3 +147,5 @@ jobs:
       - build-core
       # - build-musllinux-x86 # NOTE: This is not really necessary.
     uses: ./.github/workflows/build-test-manylinux.yml
+    with:
+      version: ${{ inputs.version }}

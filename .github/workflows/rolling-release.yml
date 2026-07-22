@@ -14,36 +14,61 @@ permissions:
 jobs:
   validate-inputs:
     runs-on: ubuntu-24.04-gh-managed
+    outputs:
+      version: ${{ steps.compute-version.outputs.version }}
     steps:
       - name: Validate tag input
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          echo "${{ inputs.tag }}" | grep -P '^(v\d+\.\d+\.\d+(-\S+)?|[^v\d].*)$' || {
+          echo "$TAG" | grep -P '^(v\d+\.\d+\.\d+(-\S+)?|[^v\d].*)$' || {
             echo "Tag must follow semantic versioning (e.g. v1.2.3 or v1.2.3-beta)."
-            echo "Provided tag: '${{ inputs.tag }}'"
+            echo "Provided tag: '$TAG'"
             exit 1
           }
+
+      - name: Compute opengrep version
+        id: compute-version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          # Embed a "qodana" marker as a PEP 440 local-version segment so the value
+          # is valid as a Python package version. A leading 'v' is stripped because
+          # setuptools normalizes it away (v1.2.3 -> 1.2.3); we must store the same
+          # normalized string everywhere so `opengrep --version` matches the wheel's
+          # opengrep-<version>.data directory used by the self-contained binary builds.
+          echo "version=${TAG#v}+qodana" >> "$GITHUB_OUTPUT"
 
   build-linux-x86:
     needs: validate-inputs
     uses: ./.github/workflows/build-test-core-x86.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
 
   build-linux-aarch64:
     needs: validate-inputs
     uses: ./.github/workflows/build-test-core-aarch64.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
 
   build-osx-arm64:
     needs: validate-inputs
     uses: ./.github/workflows/build-test-osx.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
 
   build-osx-x86:
     needs: validate-inputs
     uses: ./.github/workflows/build-test-osx.yml
     with:
       arch: x86_64
+      version: ${{ needs.validate-inputs.outputs.version }}
 
   build-windows-x86:
     needs: validate-inputs
     uses: ./.github/workflows/build-test-windows-x86.yml
+    with:
+      version: ${{ needs.validate-inputs.outputs.version }}
 
   build-manylinux-binary-x86:
     needs: build-linux-x86
