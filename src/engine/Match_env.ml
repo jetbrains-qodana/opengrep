@@ -53,6 +53,8 @@ type xconfig = {
    *)
   matching_explanations : bool;
   filter_irrelevant_rules : prefilter_config;
+  (* Preserve unsupported metavariable hooks for an external evaluator. *)
+  defer_metavariable_hooks : bool;
 
 }
 
@@ -128,4 +130,5 @@ let default_xconfig =
      * true when running as part of the regular code path (not testing code)
      *)
     filter_irrelevant_rules = NoPrefiltering;
+    defer_metavariable_hooks = false;
   }

@@ -21,6 +21,7 @@ let visit_formula f (formula : formula) : unit =
            | CondNestedFormula (_, _, formula) -> aux formula
            | CondEval _
            | CondName _
+           | CondHook _
            | CondType _
            | CondRegexp _
            | CondAnalysis _ ->

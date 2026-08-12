@@ -10,6 +10,7 @@ type range_kind = Plain | Inside | Anywhere | Regexp [@@deriving show]
 type t = {
   r : Range.t;
   mvars : Metavariable.bindings;
+  hooks : Rule.taint_stmt_hook_call list;
   (* subtle but the pattern:/pattern-inside:/pattern-regex: and
    * pattern-not:/pattern-not-inside:/pattern-not-regex: are actually different,
    * so we need to keep the information around during the evaluation.
@@ -36,7 +37,7 @@ type ranges = t list [@@deriving show]
 let match_result_to_range (m : Core_match.t) : t =
   let Core_match.{ range_loc = start_loc, end_loc; env = mvars; _ } = m in
   let r = Range.range_of_token_locations start_loc end_loc in
-  { r; mvars; origin = m; kind = Plain }
+  { r; mvars; hooks = []; origin = m; kind = Plain }
 
 let range_to_pattern_match_adjusted (r : Rule.t) (range : t) : Core_match.t =
   let m = range.origin in
@@ -124,7 +125,16 @@ let intersect_ranges config ~debug_matches xs ys =
         v.mvars
         |> List.filter (fun (mvar, _) -> not (List.mem_assoc mvar u.mvars))
       in
-      Some { u with mvars = v_only_mvars @ u.mvars }
+      let v_only_hooks =
+        v.hooks
+        |> List.filter (fun hook -> not (List.mem hook u.hooks))
+      in
+      Some
+        {
+          u with
+          mvars = v_only_mvars @ u.mvars;
+          hooks = v_only_hooks @ u.hooks;
+        }
     else None
   in
   let merge p us vs =

@@ -372,9 +372,16 @@ let run_selector_on_ranges env selector_opt ranges =
 
 let apply_focus_on_ranges (env : env) (focus_mvars_list : R.focus_mv_list list)
     (ranges : RM.ranges) : RM.ranges =
+  let merge_hooks (left : RM.t) (right : RM.t) : RM.t =
+    let right_only_hooks =
+      right.hooks
+      |> List.filter (fun hook -> not (List.mem hook left.hooks))
+    in
+    { left with hooks = right_only_hooks @ left.hooks }
+  in
   let intersect (r1 : RM.t) (r2 : RM.t) : RM.t option =
-    if Range.( $<=$ ) r1.r r2.r then Some r1
-    else if Range.( $<=$ ) r2.r r1.r then Some r2
+    if Range.( $<=$ ) r1.r r2.r then Some (merge_hooks r1 r2)
+    else if Range.( $<=$ ) r2.r r1.r then Some (merge_hooks r2 r1)
     else None
   in
   (* this will return a list of new ranges that have been restricted by the variables in focus_mvars *)
@@ -681,12 +688,45 @@ let hook_pro_metavariable_name :
     (G.expr -> Rule.metavar_cond_name -> bool) option ref =
   ref None
 
+let hook_call_of_metavariable_name
+    ({ mvar; kind; modules; fqns } : Rule.metavar_cond_name) :
+    Rule.taint_stmt_hook_call =
+  let arguments = [ ("metavariable", [ mvar ]) ] in
+  let arguments =
+    match kind with
+    | Some R.DjangoView -> ("kind", [ "django-view" ]) :: arguments
+    | None -> arguments
+  in
+  let arguments =
+    match modules with
+    | Some values -> ("modules", values) :: arguments
+    | None -> arguments
+  in
+  let arguments =
+    match fqns with
+    | Some values -> ("fqns", values) :: arguments
+    | None -> arguments
+  in
+  {
+    R.hook_id = "semgrep-internal-metavariable-name";
+    arguments = List.rev arguments;
+  }
+
 let rec filter_ranges (env : env) (xs : (RM.t * MV.bindings list) list)
     (cond : R.metavar_cond) : (RM.t * MV.bindings list) list =
   let file = env.xtarget.path.internal_path_to_content in
   xs
   |> List_.filter_map (fun (r, new_bindings) ->
          let map_bool r b = if b then Some (r, new_bindings) else None in
+         let apply_hook hook = function
+           | Some matches -> map_bool r matches
+           | None when env.xconf.defer_metavariable_hooks ->
+               Some ({ r with RM.hooks = hook :: r.RM.hooks }, new_bindings)
+           | None ->
+               error env
+                 (spf "unsupported metavariable hook %s" hook.R.hook_id);
+               None
+         in
          let bindings = r.RM.mvars in
          match cond with
          | R.CondEval e ->
@@ -743,22 +783,19 @@ let rec filter_ranges (env : env) (xs : (RM.t * MV.bindings list) list)
                    (spf "couldn't find metavar %s in the match results." mvar);
                  None)
          | R.CondName ({ mvar; _ } as cond) -> (
-             let find_name env e cond =
-               match !hook_pro_metavariable_name with
-               | None ->
-                   error env
-                     "semgrep-internal-metavariable-name operator is only \
-                      supported in the Pro engine";
-                   false
-               | Some f -> f e cond
-             in
-             let* mval = List.assoc_opt mvar bindings in
-             match Metavariable.mvalue_to_expr mval with
-             | Some e -> find_name env e cond |> map_bool r
-             | None ->
-                 error env
-                   (spf "couldn't find metavar %s in the match results." mvar);
-                 None)
+             let hook = hook_call_of_metavariable_name cond in
+             match !hook_pro_metavariable_name with
+             | None -> apply_hook hook None
+             | Some find_name ->
+                 let* mval = List.assoc_opt mvar bindings in
+                 (match Metavariable.mvalue_to_expr mval with
+                 | Some e -> apply_hook hook (Some (find_name e cond))
+                 | None ->
+                     error env
+                       (spf "couldn't find metavar %s in the match results."
+                          mvar);
+                     None))
+         | R.CondHook hook -> apply_hook hook None
          (* todo: would be nice to have CondRegexp also work on
           * eval'ed bindings.
           * We could also use re.match(), to be close to python, but really

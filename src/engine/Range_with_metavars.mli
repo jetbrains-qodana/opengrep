@@ -9,6 +9,7 @@ type range_kind = Plain | Inside | Anywhere | Regexp [@@deriving show]
 type t = {
   r : Range.t;
   mvars : Metavariable.bindings;
+  hooks : Rule.taint_stmt_hook_call list;
   kind : range_kind;
   origin : Core_match.t;
 }

@@ -14,6 +14,7 @@ let xconfig_with_prefilter_cache : Match_env.xconfig =
     matching_explanations = false;
     filter_irrelevant_rules =
       Match_env.PrefilterWithCache prefilter_cache_dls;
+    defer_metavariable_hooks = true;
   }
 
 type analyzer_rules = {
@@ -112,18 +113,37 @@ let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
   }
 
 (* Dedup key for taint entries (sources/sinks/sanitizers). *)
-let taint_entry_key ({ rule; loc; _ } : Taint_serializer.taint_entry) =
-  Printf.sprintf "%s:%s" rule (Taint_location.loc_string loc)
+let taint_metadata_key metavars hooks =
+  match hooks with
+  | [] -> ""
+  | hooks ->
+      let metavars_key =
+        metavars
+        |> List.sort (fun (left, _) (right, _) -> String.compare left right)
+        |> List.map (fun (name, loc) ->
+               name ^ "=" ^ Taint_location.loc_string loc)
+        |> String.concat ","
+      in
+      let hooks_key =
+        hooks |> List.map Rule.show_taint_stmt_hook_call |> String.concat ","
+      in
+      metavars_key ^ ":" ^ hooks_key
+
+let taint_entry_key
+    ({ rule; loc; metavars; hooks; _ } : Taint_serializer.taint_entry) =
+  Printf.sprintf "%s:%s:%s" rule (Taint_location.loc_string loc)
+    (taint_metadata_key metavars hooks)
 
 (* Dedup key for propagators. *)
 let propagator_key
-    ({ rule; loc; locFrom; locTo; _ } : Taint_serializer.taint_propagator_entry)
+    ({ rule; loc; locFrom; locTo; metavars; hooks; _ } :
+      Taint_serializer.taint_propagator_entry)
     =
-  Printf.sprintf "%s:%s:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d"
+  Printf.sprintf "%s:%s:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s"
     rule
     loc.file_path loc.line loc.col loc.offsetStart loc.offsetEnd
     locFrom.line locFrom.col locFrom.offsetStart locFrom.offsetEnd
-    locTo.line locTo.col
+    locTo.line locTo.col (taint_metadata_key metavars hooks)
 
 let string_of_taint_formula (formula : Rule.formula) =
   let rec go formula =
@@ -199,7 +219,19 @@ let collect_taint_entries (caps : < Cap.time_limit >)
         | Some _ as pattern -> pattern
         | None -> fallback_pattern
       in
-      { Taint_serializer.rule = rule_name; loc; pattern }
+      let metavars =
+        rwm.Range_with_metavars.mvars
+        |> List_.filter_map (fun (name, value) ->
+               match Metavariable.range_of_mvalue value with
+               | None -> None
+               | Some (file, range) ->
+                   let file_path = Fpath.to_string file in
+                   Some
+                     ( name,
+                       Taint_location.mk_loc_from_range ~file_path range ))
+      in
+      let hooks = List.rev rwm.Range_with_metavars.hooks in
+      { Taint_serializer.rule = rule_name; loc; pattern; metavars; hooks }
     in
     let collect_simple proj formula =
       taint_configs_and_matches
@@ -236,6 +268,8 @@ let collect_taint_entries (caps : < Cap.time_limit >)
                       locFrom;
                       locTo;
                       pattern = entry.pattern;
+                      metavars = entry.metavars;
+                      hooks = entry.hooks;
                     }))
       |> List_.deduplicate_gen ~get_key:propagator_key
     in

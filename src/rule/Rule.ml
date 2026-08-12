@@ -139,6 +139,7 @@ and metavar_cond =
   | CondAnalysis of Mvar.t * metavar_analysis_kind
   | CondNestedFormula of Mvar.t * Xlang.t option * formula
   | CondName of metavar_cond_name
+  | CondHook of taint_stmt_hook_call
 
 and metavar_cond_name = {
   mvar : Mvar.t;
@@ -156,6 +157,13 @@ and metavar_cond_name = {
         be `com.foo.bar`, but less important since those patterns may be able
         to be written directly.
   *)
+  fqns : string list option;
+      (** Fully qualified names accepted by the deferred name-resolution hook. *)
+}
+
+and taint_stmt_hook_call = {
+  hook_id : string;
+  arguments : (string * string list) list;
 }
 
 and metavar_analysis_kind =
