@@ -369,6 +369,7 @@ and metavarcond_step1 ~is_id_mvar x =
   (* TODO? maybe we should extract the strings from the type constraint *)
   | R.CondType _ -> None
   | R.CondName _ -> None
+  | R.CondHook _ -> None
   | R.CondAnalysis _ -> None
 
 (*****************************************************************************)

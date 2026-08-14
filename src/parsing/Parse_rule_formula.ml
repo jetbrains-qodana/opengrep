@@ -236,7 +236,11 @@ type extra =
   | MetavarPattern of MV.mvar * Xlang.t option * Rule.formula
   | MetavarComparison of metavariable_comparison
   | MetavarAnalysis of MV.mvar * Rule.metavar_analysis_kind
-  | MetavarName of MV.mvar * Rule.metavar_name_kind option * string list option
+  | MetavarName of
+      MV.mvar
+      * Rule.metavar_name_kind option
+      * string list option
+      * string list option
 
 (* old: | PatWherePython of string, but it was too dangerous.
  * MetavarComparison is not as powerful, but safer.
@@ -251,6 +255,39 @@ and metavariable_comparison = {
   strip : bool option;
   base : Parsed_int.t option;
 }
+
+let is_metavariable_hook hook_id =
+  String.starts_with ~prefix:"qodana-" hook_id
+  ||
+  (String.starts_with ~prefix:"semgrep-internal-" hook_id
+  && not (String.equal hook_id "semgrep-internal-pattern-anywhere"))
+
+let parse_metavariable_hook env ((hook_id, _) as key) value =
+  let/ hook_dict = parse_dict env key value in
+  let argument_names =
+    H.fold_dict (fun name _ names -> name :: names) hook_dict []
+    |> List.sort String.compare
+  in
+  let/ arguments =
+    argument_names
+    |> List_.map (fun name ->
+           match H.dict_take_opt hook_dict name with
+           | None -> raise Impossible
+           | Some (argument_key, argument_value) ->
+               let+ values =
+                 match argument_value.G.e with
+                 | G.Container (Array, _) ->
+                     parse_list env argument_key
+                       (fun env value -> parse_string env argument_key value)
+                       argument_value
+                 | _ ->
+                     let+ value = parse_string env argument_key argument_value in
+                     [ value ]
+               in
+               (name, values))
+    |> Base.Result.all
+  in
+  Ok { R.hook_id; arguments }
 
 (* Substitutes `$MVAR` with `int($MVAR)` in cond. *)
 (* This now changes all such metavariables. We expect in most cases there should
@@ -419,8 +456,8 @@ and parse_pair_old env ((key, value) : key * G.expr) :
                     | Some true -> rewrite_metavar_comparison_strip comparison
                     | _ -> comparison)
               | MetavarAnalysis (mvar, kind) -> R.CondAnalysis (mvar, kind)
-              | MetavarName (mvar, kind, modules) ->
-                  R.CondName { mvar; kind; modules }
+              | MetavarName (mvar, kind, modules, fqns) ->
+                  R.CondName { mvar; kind; modules; fqns }
             in
             match
               ( H.dict_take_opt dict "focus-metavariable",
@@ -431,9 +468,21 @@ and parse_pair_old env ((key, value) : key * G.expr) :
                 H.dict_take_opt dict "metavariable-comparison",
                 H.dict_take_opt dict "semgrep-internal-metavariable-name" )
             with
-            | None, None, None, None, None, None, None ->
-                let+ nested_formula = get_nested_formula_in_list env i expr in
-                Either_.Left3 nested_formula
+            | None, None, None, None, None, None, None -> (
+                match
+                  H.fold_dict (fun name _ names -> name :: names) dict []
+                with
+                | [ hook_id ] when is_metavariable_hook hook_id -> (
+                    match H.dict_take_opt dict hook_id with
+                    | None -> raise Impossible
+                    | Some (key, value) ->
+                        let+ hook = parse_metavariable_hook env key value in
+                        Either_.Right3 (snd key, R.CondHook hook))
+                | _ ->
+                    let+ nested_formula =
+                      get_nested_formula_in_list env i expr
+                    in
+                    Either_.Left3 nested_formula)
             | Some (((_, t) as key), value), None, None, None, None, None, None
               ->
                 let+ focus = parse_focus_mvs env key value in
@@ -665,11 +714,20 @@ and parse_extra (env : env) (key : key) (value : G.expr) :
           (fun e k -> parse_list e k (fun e -> parse_string e k))
           "modules"
       in
-      match (kind_str, module_, modules) with
-      | None, None, None ->
-          error_at_key env.id key "expected at least one of kind, module(s)"
-      | _, Some _, Some _ ->
+      let/ fqn = take_opt mv_name_dict env parse_string "fqn" in
+      let/ fqns =
+        take_opt mv_name_dict env
+          (fun e k -> parse_list e k (fun e -> parse_string e k))
+          "fqns"
+      in
+      match (kind_str, module_, modules, fqn, fqns) with
+      | None, None, None, None, None ->
+          error_at_key env.id key
+            "expected at least one of kind, module(s), fqn(s)"
+      | _, Some _, Some _, _, _ ->
           error_at_key env.id key "expected only one of module, modules"
+      | _, _, _, Some _, Some _ ->
+          error_at_key env.id key "expected only one of fqn, fqns"
       | _ ->
           let/ kind =
             match Option.map parse_kind kind_str with
@@ -677,13 +735,17 @@ and parse_extra (env : env) (key : key) (value : G.expr) :
             | Some (Ok x) -> Ok (Some x)
             | Some (Error e) -> Error e
           in
-          Ok
-            (MetavarName
-               ( mvar,
-                 kind,
-                 match modules with
-                 | None -> Option.map (fun x -> [ x ]) module_
-                 | _ -> modules )))
+          let modules =
+            match modules with
+            | None -> Option.map (fun x -> [ x ]) module_
+            | _ -> modules
+          in
+          let fqns =
+            match fqns with
+            | None -> Option.map (fun x -> [ x ]) fqn
+            | _ -> fqns
+          in
+          Ok (MetavarName (mvar, kind, modules, fqns)))
   | _ -> error_at_key env.id key ("wrong parse_extra field: " ^ fst key)
 
 (*****************************************************************************)

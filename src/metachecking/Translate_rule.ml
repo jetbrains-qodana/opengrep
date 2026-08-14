@@ -68,18 +68,37 @@ let rec translate_metavar_cond cond : [> `O of (string * Yaml.value) list ] =
         match lang with
         | None -> []
         | Some x -> [ ("language", `String (Xlang.to_string x)) ])
-  | CondName { mvar; kind; modules } ->
+  | CondName { mvar; kind; modules; fqns } ->
       `O
         ([ ("metavariable", `String mvar) ]
         @ (match kind with
           | Some DjangoView -> [ ("kind", `String "django-view") ]
           | None -> [])
+        @ (match modules with
+          | Some [ name ] -> [ ("module", `String name) ]
+          | Some names ->
+              [ ("modules", `A (List_.map (fun n -> `String n) names)) ]
+          | None -> [])
         @
-        match modules with
-        | Some [ name ] -> [ ("module", `String name) ]
+        match fqns with
+        | Some [ name ] -> [ ("fqn", `String name) ]
         | Some names ->
-            [ ("modules", `A (List_.map (fun n -> `String n) names)) ]
+            [ ("fqns", `A (List_.map (fun n -> `String n) names)) ]
         | None -> [])
+  | CondHook { hook_id; arguments } ->
+      let argument_value = function
+        | [ value ] -> `String value
+        | values ->
+            `A (List_.map (fun value -> `String value) values)
+      in
+      `O
+        [
+          ( hook_id,
+            `O
+              (List_.map
+                 (fun (key, value) -> (key, argument_value value))
+                 arguments) );
+        ]
   | CondRegexp (mv, re_str, _) ->
       `O [ ("metavariable", `String mv); ("regex", `String re_str.pattern) ]
   | CondAnalysis (mv, analysis) ->

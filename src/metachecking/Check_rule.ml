@@ -102,6 +102,12 @@ let check_mvars_of_condition env bound_mvs (t, condition) =
   | CondNestedFormula (mv, _, _)
   | CondAnalysis (mv, _) ->
       if not (mvar_is_ok mv bound_mvs) then [ mv_error env mv t ] else []
+  | CondHook { arguments; _ } ->
+      arguments
+      |> List.concat_map (function
+           | "metavariable", [ mv ] when not (mvar_is_ok mv bound_mvs) ->
+               [ mv_error env mv t ]
+           | _ -> [])
 
 let check_mvars_of_focus r bound_mvs (t, mv_list) =
   mv_list
@@ -129,7 +135,8 @@ let unknown_metavar_in_comparison r f =
              | CondEval _
              | CondType _
              | CondAnalysis _
-             | CondName _ ->
+             | CondName _
+             | CondHook _ ->
                  (Set.empty, [])
              | CondRegexp (_, regex, _) ->
                  (Mvar.mvars_of_regexp_string regex.pattern |> Set_.of_list, [])
