@@ -6473,20 +6473,23 @@ let collect_taint_entries
     | Some pattern -> add_string pool pattern
   in
   let collect_metadata metavars hooks =
-    List.iter
-      (fun (name, loc) ->
-        add_string pool name;
-        collect_loc loc)
-      metavars;
-    List.iter
-      (fun ({ Rule.hook_id; arguments } : Rule.taint_stmt_hook_call) ->
-        add_string pool hook_id;
+    match hooks with
+    | [] -> ()
+    | _ :: _ ->
         List.iter
-          (fun (key, values) ->
-            add_string pool key;
-            List.iter (add_string pool) values)
-          arguments)
-      hooks
+          (fun (name, loc) ->
+            add_string pool name;
+            collect_loc loc)
+          metavars;
+        List.iter
+          (fun ({ Rule.hook_id; arguments } : Rule.taint_stmt_hook_call) ->
+            add_string pool hook_id;
+            List.iter
+              (fun (key, values) ->
+                add_string pool key;
+                List.iter (add_string pool) values)
+              arguments)
+          hooks
   in
   let collect_entry
       ({ rule; loc; pattern; metavars; hooks } :
@@ -6518,6 +6521,9 @@ let write_location (buf : Buffer.t) (pool : string_pool) (loc : Taint_location.t
   write_int32 buf loc.offsetStart;
   write_int32 buf loc.offsetEnd
 
+let taint_binary_format_magic = 0x4f475442 (* OGTB *)
+let taint_binary_format_version = 1
+
 let serialize_taint_entries
     ((sources, sinks, sanitizers, propagators) : Taint_serializer.taint_entries_t)
     (pool : string_pool) : string =
@@ -6525,6 +6531,8 @@ let serialize_taint_entries
   let total =
     List.length sources + List.length sinks + List.length sanitizers + List.length propagators
   in
+  write_int32 buf taint_binary_format_magic;
+  write_int32 buf taint_binary_format_version;
   write_int32 buf total;
   let write_pattern = function
     | None -> write_int32 buf 0
@@ -6533,24 +6541,29 @@ let serialize_taint_entries
         write_string buf pool pattern
   in
   let write_metadata metavars hooks =
-    write_int32 buf (List.length metavars);
-    List.iter
-      (fun (name, loc) ->
-        write_string buf pool name;
-        write_location buf pool loc)
-      metavars;
-    write_int32 buf (List.length hooks);
-    List.iter
-      (fun ({ Rule.hook_id; arguments } : Rule.taint_stmt_hook_call) ->
-        write_string buf pool hook_id;
-        write_int32 buf (List.length arguments);
+    match hooks with
+    | [] ->
+        write_int32 buf 0;
+        write_int32 buf 0
+    | _ :: _ ->
+        write_int32 buf (List.length metavars);
         List.iter
-          (fun (key, values) ->
-            write_string buf pool key;
-            write_int32 buf (List.length values);
-            List.iter (write_string buf pool) values)
-          arguments)
-      hooks
+          (fun (name, loc) ->
+            write_string buf pool name;
+            write_location buf pool loc)
+          metavars;
+        write_int32 buf (List.length hooks);
+        List.iter
+          (fun ({ Rule.hook_id; arguments } : Rule.taint_stmt_hook_call) ->
+            write_string buf pool hook_id;
+            write_int32 buf (List.length arguments);
+            List.iter
+              (fun (key, values) ->
+                write_string buf pool key;
+                write_int32 buf (List.length values);
+                List.iter (write_string buf pool) values)
+              arguments)
+          hooks
   in
   let write_entry kind
       ({ rule; loc; pattern; metavars; hooks } : Taint_serializer.taint_entry) =

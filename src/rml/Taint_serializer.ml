@@ -48,14 +48,17 @@ let yojson_of_hook ({ hook_id; arguments } : Rule.taint_stmt_hook_call) =
     ]
 
 let metadata_fields metavars hooks =
-  [
-    ( "metavars",
-      `Assoc
-        (List.map
-           (fun (name, loc) -> (name, yojson_of_taint_location loc))
-           metavars) );
-    ("hooks", `List (List.map yojson_of_hook hooks));
-  ]
+  match hooks with
+  | [] -> []
+  | _ :: _ ->
+      [
+        ( "metavars",
+          `Assoc
+            (List.map
+               (fun (name, loc) -> (name, yojson_of_taint_location loc))
+               metavars) );
+        ("hooks", `List (List.map yojson_of_hook hooks));
+      ]
 
 let yojson_of_taint_entry
     ({ rule; loc; pattern; metavars; hooks } : taint_entry) : Y.t =

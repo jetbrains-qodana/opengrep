@@ -258,7 +258,9 @@ and metavariable_comparison = {
 
 let is_metavariable_hook hook_id =
   String.starts_with ~prefix:"qodana-" hook_id
-  || String.starts_with ~prefix:"semgrep-internal-" hook_id
+  ||
+  (String.starts_with ~prefix:"semgrep-internal-" hook_id
+  && not (String.equal hook_id "semgrep-internal-pattern-anywhere"))
 
 let parse_metavariable_hook env ((hook_id, _) as key) value =
   let/ hook_dict = parse_dict env key value in
