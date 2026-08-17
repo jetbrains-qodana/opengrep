@@ -8,7 +8,7 @@
     </picture>
   </a>
 </p>
- 
+  
 ### Welcome to Opengrep, a fork of Semgrep, under the LGPL 2.1 license
 
 _Opengrep is a fork of Semgrep, created by Semgrep Inc. Opengrep is not affiliated with or endorsed by Semgrep Inc._
