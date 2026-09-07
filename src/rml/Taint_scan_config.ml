@@ -23,5 +23,10 @@ type t = {
   timeout : float option;
   timeout_threshold : int option;
   on_parsed : parsed_file -> unit;
+  (* Benchmark mode ([opengrep taint --logs]). When set, the batch folds the
+   * engine's per-rule profiling for every processed file into this
+   * aggregate. Only meaningful with [mode = `All] (the profiling comes from
+   * the [Match_rules.check] pass) and [num_domains = 1]. *)
+  timing_sink : Taint_timing.t option;
 }
 [@@deriving show]
