@@ -12,6 +12,8 @@ type conf = {
   timeout : float option;
   timeout_threshold : int option;
   logging_level : Logs.level option;
+  (* Benchmark mode: path of the per-rule timing report to write. *)
+  logs : string option;
 }
 
 (* entry point *)

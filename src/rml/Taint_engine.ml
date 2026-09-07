@@ -275,15 +275,42 @@ let collect_taint_entries (caps : < Cap.time_limit >)
     in
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
+let no_timing : Taint_timing.file_timing =
+  { rule_times = []; timed_out = []; truncated = false }
+
+(* Rules that exceeded [--timeout] surface as [Timeout] errors carrying their
+ * rule id. They also carry a [rule_match_time] of 0.0 (see
+ * [Core_profiling.empty_rule_profiling]), so without pulling them out here a
+ * rule that always times out would be reported as the cheapest one. *)
+let timed_out_rules_of_errors (errors : Core_error.t list) : string list =
+  errors
+  |> List.filter_map (fun (e : Core_error.t) ->
+         match (e.Core_error.typ, e.Core_error.rule_id) with
+         | Semgrep_output_v1_t.Timeout, Some rule_id ->
+             Some (Rule_ID.to_string rule_id)
+         | _ -> None)
+
+let harvest_rule_times (res : Core_result.matches_single_file) :
+    (string * float) list =
+  match res.Core_result.profiling with
+  | None -> []
+  | Some p ->
+      (* [rule_match_time] is in seconds; the report is in milliseconds. *)
+      p.Core_profiling.p_rule_times
+      |> List.map (fun (rp : Core_profiling.rule_profiling) ->
+             ( Rule_ID.to_string rp.Core_profiling.rule_id,
+               rp.Core_profiling.rule_match_time *. 1000.0 ))
+
 (* Run the search-engine on [xtarget] for the precomputed [search_rules]
  * (already filtered for analyzer compatibility and deduplicated by
  * [classify_rules_for_analyzer]). Returns the matches and errors so callers
- * can convert them into diagnostics. *)
+ * can convert them into diagnostics, plus the engine's per-rule timings for
+ * the benchmark report. *)
 let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
     ~(timeout : float option) ~(timeout_threshold : int option)
     (xtarget : Xtarget.t) (search_rules : Rule.t list) :
-    Core_match.t list * Core_error.t list =
-  if search_rules = [] then ([], [])
+    Core_match.t list * Core_error.t list * Taint_timing.file_timing =
+  if search_rules = [] then ([], [], no_timing)
   else
     let timeout_config =
       match timeout with
@@ -302,15 +329,40 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
                 caps;
               }
     in
-    let res =
-      Match_rules.check
-        ~match_hook:(fun _ -> ())
-        ~timeout:timeout_config
-        xconfig_with_prefilter_cache
-        search_rules
-        xtarget
-    in
-    (res.matches, Core_error.ErrorSet.elements res.errors)
+    try
+      let res =
+        Match_rules.check
+          ~match_hook:(fun _ -> ())
+          ~timeout:timeout_config
+          xconfig_with_prefilter_cache
+          search_rules
+          xtarget
+      in
+      let errors = Core_error.ErrorSet.elements res.errors in
+      let timing : Taint_timing.file_timing =
+        {
+          rule_times = harvest_rule_times res;
+          timed_out = timed_out_rules_of_errors errors;
+          truncated = false;
+        }
+      in
+      (res.matches, errors, timing)
+    with
+    | Match_rules.File_timeout rule_ids ->
+        Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+          m
+            "File timeout while computing diagnostics, rules: %s"
+            (rule_ids |> List_.map Rule_ID.to_string |> String.concat ","));
+        (* [--timeout-threshold] aborted the file, so the engine threw away
+         * the times of the rules that had already finished on it. All we can
+         * still recover is which rules timed out. *)
+        ( [],
+          [],
+          {
+            Taint_timing.rule_times = [];
+            timed_out = rule_ids |> List_.map Rule_ID.to_string;
+            truncated = true;
+          } )
 
 (* Per-file pipeline: parse + naming + (optional) search engine + (optional)
  * taint engine. See [parse_file]'s doc in the .mli for the public contract.
@@ -320,8 +372,9 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
  *   - [ar.taint_rules = []] skips the prefilter + taint engine entirely. *)
 let parse_file (caps : < Cap.time_limit >)
     ?(mode : Taint_scan_config.mode = `Taint) ?(timeout : float option = Some 5.0)
-    ?(timeout_threshold : int option = Some 3) (infile : Fpath.t)
-    (ar : analyzer_rules) : Taint_scan_config.parsed_file =
+    ?(timeout_threshold : int option = Some 3)
+    ?(on_timing : (Taint_timing.file_timing -> unit) option)
+    (infile : Fpath.t) (ar : analyzer_rules) : Taint_scan_config.parsed_file =
   Parsing_init.init ();
   let lang = Lang.lang_of_filename_exn infile in
   let parse_result = Parse_target.just_parse_with_lang lang infile in
@@ -337,13 +390,16 @@ let parse_file (caps : < Cap.time_limit >)
     { ast; lang; xlang = analyzer; file = infile; taint_entries; matches;
       errors }
   in
-  let matches, errors =
+  let matches, errors, timing =
     match mode with
     | `All ->
         run_rules_engine_for_diagnostics caps ~timeout ~timeout_threshold
           xtarget ar.search_rules
-    | `Taint -> ([], [])
+    | `Taint -> ([], [], no_timing)
   in
+  (match on_timing with
+  | Some f -> f timing
+  | None -> ());
   match ar.taint_rules with
   | [] -> mk_parsed ~matches ~errors ()
   | taint_rules ->

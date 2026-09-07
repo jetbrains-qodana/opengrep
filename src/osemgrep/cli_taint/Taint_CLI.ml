@@ -21,6 +21,7 @@ type conf = {
   timeout : float option;
   timeout_threshold : int option;
   logging_level : Logs.level option;
+  logs : string option;
 }
 
 (*****************************************************************************)
@@ -75,6 +76,23 @@ let o_jobs : int Term.t =
   in
   Arg.value (Arg.opt Arg.int (Domainslib_.get_cpu_count ()) info)
 
+let o_logs : string option Term.t =
+  let info =
+    Arg.info [ "logs" ] ~docv:"CSV"
+      ~doc:
+        "Benchmark mode. Write a per-rule timing report to $(docv), timed \
+         out rules first then worst $(b,total_ms), with columns \
+         $(b,rule_id), $(b,mode), \
+         $(b,files_run), $(b,total_ms), $(b,mean_ms), $(b,max_ms), \
+         $(b,worst_file) and $(b,timeouts). Covers taint, search and \
+         extract rules. The times are the engine's own per-rule \
+         measurements, the same ones $(b,opengrep scan --time) reports. \
+         Implies $(b,--with-diagnostics), since that is what runs the rule \
+         engine, and forces single threaded execution so the timings are \
+         not distorted by contention."
+  in
+  Arg.value (Arg.opt (Arg.some Arg.string) None info)
+
 let o_with_diagnostics : bool Term.t =
   let info =
     Arg.info [ "with-diagnostics" ]
@@ -102,7 +120,9 @@ let o_timeout_threshold : int option Term.t =
         (Printf.sprintf
            "Maximum number of rules that can time out on a file before the \
             whole file is skipped. If not set (or 0), the file is never \
-            skipped for timeouts.")
+            skipped for timeouts. Note that when a file is skipped this way \
+            the engine discards the timings already collected for it, so \
+            $(b,--logs) undercounts those rules.")
   in
   Arg.value (Arg.opt (Arg.some Arg.int) None info)
 
@@ -129,7 +149,7 @@ let o_debug : bool Term.t =
 (*************************************************************************)
 let cmdline_term : conf Term.t =
   let combine format jobs rules_file rules_path with_diagnostics timeout
-      timeout_threshold debug verbose =
+      timeout_threshold debug verbose logs =
     let logging_level =
       match (verbose, debug) with
       | _, true -> (* --debug *) Some Logs.Debug
@@ -145,11 +165,13 @@ let cmdline_term : conf Term.t =
       timeout;
       timeout_threshold;
       logging_level;
+      logs;
     }
   in
   Term.(
     const combine $ o_format $ o_jobs $ o_rules_file $ o_rules
-    $ o_with_diagnostics $ o_timeout $ o_timeout_threshold $ o_debug $ o_verbose)
+    $ o_with_diagnostics $ o_timeout $ o_timeout_threshold $ o_debug $ o_verbose
+    $ o_logs)
 
 let parse_argv (argv : string array) : conf =
   let cmd : conf Cmd.t = Cmd.v cmdline_info cmdline_term in

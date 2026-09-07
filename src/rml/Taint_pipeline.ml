@@ -43,9 +43,15 @@ let parse_files_ast (caps : < Cap.fork ; Cap.time_limit >)
   let process_file (file : Fpath.t) =
     let lang = Lang.lang_of_filename_exn file in
     let ar = Hashtbl.find rules_by_lang lang in
+    let on_timing =
+      conf.timing_sink
+      |> Option.map (fun sink (ft : Taint_timing.file_timing) ->
+             Taint_timing.record_file sink ~file_s:(Fpath.to_string file) ft)
+    in
     match
       Taint_engine.parse_file (caps :> < Cap.time_limit >) ~mode:conf.mode
-        ~timeout:conf.timeout ~timeout_threshold:conf.timeout_threshold file ar
+        ~timeout:conf.timeout ~timeout_threshold:conf.timeout_threshold
+        ?on_timing file ar
     with
     | parsed ->
         conf.on_parsed parsed;
