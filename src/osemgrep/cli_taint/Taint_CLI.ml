@@ -82,14 +82,18 @@ let o_logs : string option Term.t =
       ~doc:
         "Benchmark mode. Write a per-rule timing report to $(docv), timed \
          out rules first then worst $(b,total_ms), with columns \
-         $(b,rule_id), $(b,mode), \
-         $(b,files_run), $(b,total_ms), $(b,mean_ms), $(b,max_ms), \
+         $(b,rule_id), $(b,mode), $(b,files_candidate), $(b,files_run), \
+         $(b,not_run), $(b,total_ms), $(b,mean_ms), $(b,max_ms), \
          $(b,worst_file) and $(b,timeouts). Covers taint, search and \
-         extract rules. The times are the engine's own per-rule \
-         measurements, the same ones $(b,opengrep scan --time) reports. \
-         Implies $(b,--with-diagnostics), since that is what runs the rule \
-         engine, and forces single threaded execution so the timings are \
-         not distorted by contention."
+         extract rules. $(b,files_candidate) counts the files the rule \
+         was offered to and $(b,not_run) how many of those it never ran \
+         on, having been rejected by the regexp prefilter; a rule with \
+         $(b,files_run) of 0 cost nothing on this corpus. The times are \
+         the engine's own per-rule measurements, the same ones \
+         $(b,opengrep scan --time) reports. Implies \
+         $(b,--with-diagnostics), since that is what runs the rule \
+         engine, and forces single threaded execution so the timings \
+         are not distorted by contention."
   in
   Arg.value (Arg.opt (Arg.some Arg.string) None info)
 

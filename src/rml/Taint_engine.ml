@@ -276,7 +276,23 @@ let collect_taint_entries (caps : < Cap.time_limit >)
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
 let no_timing : Taint_timing.file_timing =
-  { rule_times = []; timed_out = []; truncated = false }
+  { candidates = []; rule_times = []; timed_out = []; truncated = false }
+
+(* The rules [Match_rules.check] will actually consider for a file. It skips
+ * [`SCA] rules for reasons unrelated to prefiltering and raises on
+ * [`Steps], so excluding both here keeps the report's [not_run] column
+ * attributable to the prefilter alone. *)
+let benchmark_candidates (search_rules : Rule.t list) : string list =
+  search_rules
+  |> List.filter_map (fun (r : Rule.t) ->
+         match r.Rule.mode with
+         | `Taint _
+         | `Search _
+         | `Extract _ ->
+             Some (Rule_ID.to_string (fst r.Rule.id))
+         | `SCA _
+         | `Steps _ ->
+             None)
 
 (* Rules that exceeded [--timeout] surface as [Timeout] errors carrying their
  * rule id. They also carry a [rule_match_time] of 0.0 (see
@@ -307,8 +323,9 @@ let harvest_rule_times (res : Core_result.matches_single_file) :
  * can convert them into diagnostics, plus the engine's per-rule timings for
  * the benchmark report. *)
 let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
-    ~(timeout : float option) ~(timeout_threshold : int option)
-    (xtarget : Xtarget.t) (search_rules : Rule.t list) :
+    ?(collect_timing = false) ~(timeout : float option)
+    ~(timeout_threshold : int option) (xtarget : Xtarget.t)
+    (search_rules : Rule.t list) :
     Core_match.t list * Core_error.t list * Taint_timing.file_timing =
   if search_rules = [] then ([], [], no_timing)
   else
@@ -339,12 +356,17 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
           xtarget
       in
       let errors = Core_error.ErrorSet.elements res.errors in
+      (* [benchmark_candidates] walks every rule for the file, so it is not
+       * something to build and throw away on the normal path. *)
       let timing : Taint_timing.file_timing =
-        {
-          rule_times = harvest_rule_times res;
-          timed_out = timed_out_rules_of_errors errors;
-          truncated = false;
-        }
+        if not collect_timing then no_timing
+        else
+          {
+            candidates = benchmark_candidates search_rules;
+            rule_times = harvest_rule_times res;
+            timed_out = timed_out_rules_of_errors errors;
+            truncated = false;
+          }
       in
       (res.matches, errors, timing)
     with
@@ -356,13 +378,17 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
         (* [--timeout-threshold] aborted the file, so the engine threw away
          * the times of the rules that had already finished on it. All we can
          * still recover is which rules timed out. *)
-        ( [],
-          [],
-          {
-            Taint_timing.rule_times = [];
-            timed_out = rule_ids |> List_.map Rule_ID.to_string;
-            truncated = true;
-          } )
+        let timing : Taint_timing.file_timing =
+          if not collect_timing then no_timing
+          else
+            {
+              candidates = benchmark_candidates search_rules;
+              rule_times = [];
+              timed_out = rule_ids |> List_.map Rule_ID.to_string;
+              truncated = true;
+            }
+        in
+        ([], [], timing)
 
 (* Per-file pipeline: parse + naming + (optional) search engine + (optional)
  * taint engine. See [parse_file]'s doc in the .mli for the public contract.
@@ -393,8 +419,9 @@ let parse_file (caps : < Cap.time_limit >)
   let matches, errors, timing =
     match mode with
     | `All ->
-        run_rules_engine_for_diagnostics caps ~timeout ~timeout_threshold
-          xtarget ar.search_rules
+        run_rules_engine_for_diagnostics caps
+          ~collect_timing:(Option.is_some on_timing) ~timeout
+          ~timeout_threshold xtarget ar.search_rules
     | `Taint -> ([], [], no_timing)
   in
   (match on_timing with
