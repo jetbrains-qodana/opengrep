@@ -84,23 +84,32 @@ let union_prefilter_of_taint_rule (r : Rule.taint_rule)
  * one half of the flow. Union semantics keeps such files, which matters
  * for any cross-file taint flow: a file with no taint-related token cannot 
  * produce a finding from this rule. *)
-let prefilter_taint_rules ~(content : string)
+let prefilter_taint_rules ?on_prefilter ~(content : string)
     (rules : Rule.taint_rule list) : Rule.taint_rule list =
   let cache = Domain.DLS.get taint_union_prefilter_cache_dls in
   rules
   |> List.filter (fun (r : Rule.taint_rule) ->
          let rule_id = fst r.Rule.id in
-         let pred_opt =
-           match Hashtbl.find_opt cache rule_id with
-           | Some v -> v
-           | None ->
-               let v = union_prefilter_of_taint_rule r in
-               Hashtbl.add cache rule_id v;
-               v
+         let decide () =
+           let pred_opt =
+             match Hashtbl.find_opt cache rule_id with
+             | Some v -> v
+             | None ->
+                 let v = union_prefilter_of_taint_rule r in
+                 Hashtbl.add cache rule_id v;
+                 v
+           in
+           match pred_opt with
+           | None -> true
+           | Some pred -> pred content
          in
-         match pred_opt with
-         | None -> true
-         | Some pred -> pred content)
+         (* Unmeasured unless someone asked for the measurement. *)
+         match on_prefilter with
+         | None -> decide ()
+         | Some f ->
+             let survived, seconds = Common.with_time decide in
+             f rule_id seconds;
+             survived)
 
 let xtarget_for_ast (infile : Fpath.t) (analyzer : Xlang.t)
     (lazy_ast_and_errors :
@@ -166,24 +175,38 @@ let matched_pattern_of_range (rwm : Range_with_metavars.t) =
   | pattern -> Some pattern
 
 let collect_taint_entries (caps : < Cap.time_limit >)
-    ~(timeout : float option) ~(timeout_threshold : int option)
-    ~(infile_s : string) ~(ast : AST_generic.program)
-    (taint_rules : Rule.taint_rule list) : Taint_serializer.taint_entries_t =
+    ?on_spec_time ~(timeout : float option)
+    ~(timeout_threshold : int option) ~(infile_s : string)
+    ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
+    Taint_serializer.taint_entries_t =
   if taint_rules = [] then Ast_payload.empty_taint_entries
   else
     let formula_cache = Formula_cache.mk_specialized_formula_cache taint_rules in
     let timed_out = ref [] in
+    (* This pass is gated by the *union* prefilter, which is looser than the
+     * one guarding [Match_rules.check]. A rule rejected for matching can
+     * still pay full cost here, so it needs its own measurement or the
+     * report shows it as free. A rule killed by [~timeout] is charged what
+     * it burned before being killed. *)
     let run_spec (rule : Rule.taint_rule) =
       let f () =
         Match_taint_spec.spec_matches_of_taint_rule
           ~per_file_formula_cache:formula_cache xconfig_with_prefilter_cache
           infile_s (ast, []) rule
       in
-      match timeout with
-      | None -> Some (f ())
-      | Some t ->
-          Time_limit.set_timeout caps
-            ~name:"Taint_engine.collect_taint_entries" t f
+      let run () =
+        match timeout with
+        | None -> Some (f ())
+        | Some t ->
+            Time_limit.set_timeout caps
+              ~name:"Taint_engine.collect_taint_entries" t f
+      in
+      match on_spec_time with
+      | None -> run ()
+      | Some g ->
+          let res, seconds = Common.with_time run in
+          g (fst rule.Rule.id) seconds;
+          res
     in
     let taint_configs_and_matches =
       List.filter_map
@@ -276,7 +299,8 @@ let collect_taint_entries (caps : < Cap.time_limit >)
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
 let no_timing : Taint_timing.file_timing =
-  { candidates = []; rule_times = []; timed_out = []; truncated = false }
+  { candidates = []; prefilter_times = []; match_times = []; spec_times = [];
+    timed_out = []; truncated = false }
 
 (* The rules [Match_rules.check] will actually consider for a file. It skips
  * [`SCA] rules for reasons unrelated to prefiltering and raises on
@@ -306,7 +330,7 @@ let timed_out_rules_of_errors (errors : Core_error.t list) : string list =
              Some (Rule_ID.to_string rule_id)
          | _ -> None)
 
-let harvest_rule_times (res : Core_result.matches_single_file) :
+let harvest_match_times (res : Core_result.matches_single_file) :
     (string * float) list =
   match res.Core_result.profiling with
   | None -> []
@@ -346,9 +370,24 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
                 caps;
               }
     in
+    (* Prefiltering is decided inside [Match_rules.check] before any per-rule
+     * match timing begins, so its cost lands in no [rule_profiling]. The
+     * callback is the only place it can be attributed per rule. Left off
+     * outside benchmark mode, which is also what keeps [check] from timing
+     * anything. *)
+    let prefilter_acc : (string * float) list ref = ref [] in
+    let on_prefilter =
+      if not collect_timing then None
+      else
+        Some
+          (fun rule_id _survived (seconds : float) ->
+            prefilter_acc :=
+              (Rule_ID.to_string rule_id, seconds *. 1000.0) :: !prefilter_acc)
+    in
     try
       let res =
         Match_rules.check
+          ?on_prefilter
           ~match_hook:(fun _ -> ())
           ~timeout:timeout_config
           xconfig_with_prefilter_cache
@@ -363,7 +402,9 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
         else
           {
             candidates = benchmark_candidates search_rules;
-            rule_times = harvest_rule_times res;
+            prefilter_times = !prefilter_acc;
+            match_times = harvest_match_times res;
+            spec_times = [];
             timed_out = timed_out_rules_of_errors errors;
             truncated = false;
           }
@@ -383,7 +424,11 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
           else
             {
               candidates = benchmark_candidates search_rules;
-              rule_times = [];
+              (* Whatever screening was paid for before the abort still
+               * happened, so keep it. *)
+              prefilter_times = !prefilter_acc;
+              match_times = [];
+              spec_times = [];
               timed_out = rule_ids |> List_.map Rule_ID.to_string;
               truncated = true;
             }
@@ -424,19 +469,66 @@ let parse_file (caps : < Cap.time_limit >)
           ~timeout_threshold xtarget ar.search_rules
     | `Taint -> ([], [], no_timing)
   in
-  (match on_timing with
-  | Some f -> f timing
-  | None -> ());
+  (* The union taint prefilter below is a second, independent screening pass
+   * (see [prefilter_taint_rules]); it is charged to the same
+   * [prefilter_times] bucket, so [on_timing] has to wait for it. *)
+  let union_prefilter_acc : (string * float) list ref = ref [] in
+  let on_union_prefilter =
+    match on_timing with
+    | None -> None
+    | Some _ ->
+        Some
+          (fun rule_id (seconds : float) ->
+            union_prefilter_acc :=
+              (Rule_ID.to_string rule_id, seconds *. 1000.0)
+              :: !union_prefilter_acc)
+  in
+  let spec_acc : (string * float) list ref = ref [] in
+  let on_spec_time =
+    match on_timing with
+    | None -> None
+    | Some _ ->
+        Some
+          (fun rule_id (seconds : float) ->
+            spec_acc :=
+              (Rule_ID.to_string rule_id, seconds *. 1000.0) :: !spec_acc)
+  in
+  (* [~truncated_by] carries the rule ids that made [--timeout-threshold]
+   * abandon the file inside the taint pass, so that file still gets a row
+   * instead of silently vanishing from the report. *)
+  let report_timing ?(truncated_by = []) () =
+    match on_timing with
+    | None -> ()
+    | Some f ->
+        f
+          {
+            timing with
+            Taint_timing.prefilter_times =
+              !union_prefilter_acc @ timing.Taint_timing.prefilter_times;
+            spec_times = !spec_acc;
+            timed_out = truncated_by @ timing.Taint_timing.timed_out;
+            truncated = truncated_by <> [] || timing.Taint_timing.truncated;
+          }
+  in
   match ar.taint_rules with
-  | [] -> mk_parsed ~matches ~errors ()
+  | [] ->
+      report_timing ();
+      mk_parsed ~matches ~errors ()
   | taint_rules ->
       let taint_rules =
-        prefilter_taint_rules
+        prefilter_taint_rules ?on_prefilter:on_union_prefilter
           ~content:(Lazy.force xtarget.Xtarget.lazy_content)
           taint_rules
       in
       let taint_entries =
-        collect_taint_entries caps ~timeout ~timeout_threshold
-          ~infile_s:(Fpath.to_string infile) ~ast taint_rules
+        try
+          collect_taint_entries caps ?on_spec_time ~timeout ~timeout_threshold
+            ~infile_s:(Fpath.to_string infile) ~ast taint_rules
+        with
+        | Match_rules.File_timeout rule_ids ->
+            report_timing
+              ~truncated_by:(rule_ids |> List_.map Rule_ID.to_string) ();
+            raise (Match_rules.File_timeout rule_ids)
       in
+      report_timing ();
       mk_parsed ~taint_entries ~matches ~errors ()

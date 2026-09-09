@@ -78,19 +78,21 @@ let o_jobs : int Term.t =
 
 let o_logs : string option Term.t =
   let info =
-    Arg.info [ "logs" ] ~docv:"CSV"
+    Arg.info [ "logs" ] ~docv:"FILE"
       ~doc:
-        "Benchmark mode. Write a per-rule timing report to $(docv), timed \
-         out rules first then worst $(b,total_ms), with columns \
-         $(b,rule_id), $(b,mode), $(b,files_candidate), $(b,files_run), \
-         $(b,not_run), $(b,total_ms), $(b,mean_ms), $(b,max_ms), \
-         $(b,worst_file) and $(b,timeouts). Covers taint, search and \
-         extract rules. $(b,files_candidate) counts the files the rule \
-         was offered to and $(b,not_run) how many of those it never ran \
-         on, having been rejected by the regexp prefilter; a rule with \
-         $(b,files_run) of 0 cost nothing on this corpus. The times are \
-         the engine's own per-rule measurements, the same ones \
-         $(b,opengrep scan --time) reports. Implies \
+        "Benchmark mode. Write a csv per-rule cost report to $(docv), timed \
+         out rules first then worst $(b,total_cost_ms). A rule can cost \
+         time in three places and the report separates them: \
+         $(b,prefilter_ms) to decide whether to run it at all, charged \
+         even when it is screened out; $(b,match_ms) for the rule \
+         engine, the same measurement $(b,opengrep scan --time) \
+         reports; and $(b,spec_ms) for taint source/sink matching, \
+         which is gated by a looser prefilter and so can be paid by a \
+         rule that $(b,match_ms) shows as never running. \
+         $(b,total_cost_ms) is their sum, $(b,mean_cost_ms) amortises \
+         it over every file the rule was offered, and \
+         $(b,max_cost_ms) with $(b,worst_file) name the worst single \
+         file. Covers taint, search and extract rules. Implies \
          $(b,--with-diagnostics), since that is what runs the rule \
          engine, and forces single threaded execution so the timings \
          are not distorted by contention."

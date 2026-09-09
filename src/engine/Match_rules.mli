@@ -30,11 +30,18 @@ type timeout_config = {
  *
  * Return matches, errors, and match time.
  *
+ * [on_prefilter] is called once per rule with its id, whether the rule
+ * survived prefiltering, and the seconds the decision took. Prefiltering
+ * runs before per-rule match timing begins, so its cost appears in no
+ * [rule_profiling]; this callback is the only way to attribute it per rule.
+ * Omitting it is free: no clock is read and behaviour is unchanged.
+ *
  * This will run the search-mode and taint-mode rules.
  * !This can also raise File_timeout!
  *)
 val check :
   ?dependency_match_table:Match_SCA_mode.dependency_match_table ->
+  ?on_prefilter:(Rule_ID.t -> bool -> float -> unit) ->
   match_hook:(Core_match.t -> unit) ->
   timeout:timeout_config option ->
   Match_env.xconfig ->

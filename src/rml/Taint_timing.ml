@@ -1,6 +1,8 @@
 type file_timing = {
   candidates : string list;
-  rule_times : (string * float) list;
+  prefilter_times : (string * float) list;
+  match_times : (string * float) list;
+  spec_times : (string * float) list;
   timed_out : string list;
   truncated : bool;
 }
@@ -8,19 +10,23 @@ type file_timing = {
 (* Running totals for one rule across the whole batch. *)
 type rule_acc = {
   (* Files on which the engine was asked to consider this rule at all. The
-   * gap between this and [files_run] + [timeouts] is what the prefilter
-   * rejected. *)
+   * gap between this and [files_matched] + [timeouts] is what the matching
+   * pass's prefilter rejected. *)
   mutable files_candidate : int;
-  mutable files_run : int;
-  mutable total_ms : float;
-  mutable max_ms : float;
+  mutable files_matched : int;
+  mutable files_spec : int;
+  mutable prefilter_ms : float;
+  mutable match_ms : float;
+  mutable spec_ms : float;
+  (* Worst single file by combined cost, and which file that was. *)
+  mutable max_cost_ms : float;
   mutable worst_file : string;
   mutable timeouts : int;
 }
 
 type t = {
-  (* rule_id -> mode label, for the [mode] column. Rules that never run
-   * still resolve here, so the column is never blank for a known rule. *)
+  (* rule_id -> mode label, so the column is populated even for a rule that
+   * never ran anywhere. *)
   modes : (string, string) Hashtbl.t;
   accs : (string, rule_acc) Hashtbl.t;
   mutable truncated : int;
@@ -40,7 +46,7 @@ let mode_label (r : Rule.t) : string =
 
 let make_sink (rules : Rule.t list) : t =
   (* Without this the engine's [profiling_opt] discards every
-   * [rule_profiling] and the report comes out empty. *)
+   * [rule_profiling] and the match times come out empty. *)
   Core_profiling.profiling := true;
   let modes = Hashtbl.create 256 in
   rules
@@ -55,44 +61,73 @@ let acc_for (sink : t) (rule_id : string) : rule_acc =
   | Some a -> a
   | None ->
       let a =
-        { files_candidate = 0; files_run = 0; total_ms = 0.0; max_ms = 0.0;
-          worst_file = ""; timeouts = 0 }
+        { files_candidate = 0; files_matched = 0; files_spec = 0;
+          prefilter_ms = 0.0; match_ms = 0.0; spec_ms = 0.0;
+          max_cost_ms = 0.0; worst_file = ""; timeouts = 0 }
       in
       Hashtbl.add sink.accs rule_id a;
       a
 
+(* Sum duplicate entries for the same rule id. Screening can be charged more
+ * than once per file, since the matching pass and the taint payload pass run
+ * separate prefilters. *)
+let tally (entries : (string * float) list) : (string, float) Hashtbl.t =
+  let t = Hashtbl.create (List.length entries + 1) in
+  entries
+  |> List.iter (fun (id, ms) ->
+         let prev = Option.value ~default:0.0 (Hashtbl.find_opt t id) in
+         Hashtbl.replace t id (prev +. ms));
+  t
+
 let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
-  (* A rule that timed out is still reported in the engine's per-rule times,
-   * but with a synthetic 0.0 from [Core_profiling.empty_rule_profiling].
-   * Counting that as a measurement would drag [mean_ms] down and make the
-   * worst rules look free, so timing columns cover completed runs only and
-   * timeouts are counted on their own. Keyed off [timed_out] rather than
-   * off [ms = 0.0], since a genuinely fast rule can measure 0.0 too. *)
-  let timed_out = Hashtbl.create (List.length ft.timed_out) in
+  let prefilter = tally ft.prefilter_times in
+  let spec = tally ft.spec_times in
+  (* A rule killed by [--timeout] is still reported by the engine, but with a
+   * synthetic 0.0 from [Core_profiling.empty_rule_profiling]. Counting that
+   * as a measurement would drag the averages down and rank the worst rules
+   * as the cheapest, so match columns cover completed runs only and timeouts
+   * are counted on their own. Keyed off [timed_out] rather than off
+   * [ms = 0.0], since a genuinely fast rule can measure 0.0 too. *)
+  let timed_out = Hashtbl.create (List.length ft.timed_out + 1) in
   ft.timed_out |> List.iter (fun id -> Hashtbl.replace timed_out id ());
+  let matched =
+    tally
+      (ft.match_times
+      |> List.filter (fun (id, _) -> not (Hashtbl.mem timed_out id)))
+  in
+  (* Every rule mentioned anywhere for this file, so that a rule which only
+   * ever pays screening still gets a row rather than vanishing. *)
+  let touched = Hashtbl.create 256 in
+  let touch id = Hashtbl.replace touched id () in
+  ft.candidates |> List.iter touch;
+  prefilter |> Hashtbl.iter (fun id _ -> touch id);
+  matched |> Hashtbl.iter (fun id _ -> touch id);
+  spec |> Hashtbl.iter (fun id _ -> touch id);
+  ft.timed_out |> List.iter touch;
   Mutex.protect sink.mutex (fun () ->
       if ft.truncated then sink.truncated <- sink.truncated + 1;
-      (* Touch every candidate so a rule the prefilter always rejects still
-       * gets a row, rather than vanishing from the report entirely. *)
-      ft.candidates
-      |> List.iter (fun rule_id ->
+      touched
+      |> Hashtbl.iter (fun rule_id () ->
              let a = acc_for sink rule_id in
-             a.files_candidate <- a.files_candidate + 1);
-      ft.rule_times
-      |> List.iter (fun (rule_id, ms) ->
-             if not (Hashtbl.mem timed_out rule_id) then begin
-               let a = acc_for sink rule_id in
-               a.files_run <- a.files_run + 1;
-               a.total_ms <- a.total_ms +. ms;
-               if ms > a.max_ms then begin
-                 a.max_ms <- ms;
-                 a.worst_file <- file_s
-               end
-             end);
-      ft.timed_out
-      |> List.iter (fun rule_id ->
-             let a = acc_for sink rule_id in
-             a.timeouts <- a.timeouts + 1))
+             let get tbl =
+               Option.value ~default:0.0 (Hashtbl.find_opt tbl rule_id)
+             in
+             let pf = get prefilter and mt = get matched and sp = get spec in
+             a.files_candidate <- a.files_candidate + 1;
+             a.prefilter_ms <- a.prefilter_ms +. pf;
+             a.match_ms <- a.match_ms +. mt;
+             a.spec_ms <- a.spec_ms +. sp;
+             if Hashtbl.mem matched rule_id then
+               a.files_matched <- a.files_matched + 1;
+             if Hashtbl.mem spec rule_id then
+               a.files_spec <- a.files_spec + 1;
+             if Hashtbl.mem timed_out rule_id then
+               a.timeouts <- a.timeouts + 1;
+             let cost = pf +. mt +. sp in
+             if cost > a.max_cost_ms then begin
+               a.max_cost_ms <- cost;
+               a.worst_file <- file_s
+             end))
 
 let truncated_files (sink : t) : int =
   Mutex.protect sink.mutex (fun () -> sink.truncated)
@@ -107,28 +142,31 @@ let csv_escape (s : string) : string =
     let escaped = String.concat "\"\"" (String.split_on_char '"' s) in
     "\"" ^ escaped ^ "\""
 
+let total_cost (a : rule_acc) : float =
+  a.prefilter_ms +. a.match_ms +. a.spec_ms
+
 let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
   let rows =
     Mutex.protect sink.mutex (fun () ->
         Hashtbl.fold (fun rule_id a rows -> (rule_id, a) :: rows) sink.accs [])
   in
   (* Worst first: the point of the report is to read the top few lines and
-   * stop. Rules that timed out sort above everything else regardless of
-   * their measured time - a rule that always blows the limit has a
-   * [total_ms] near zero precisely because it never finished, and it is the
-   * single most important thing in the report. *)
+   * stop. Rules that timed out sort above everything else - a rule that
+   * always blows the limit has a near-zero match time precisely because it
+   * never finished, and it is the most important thing in the report. *)
   let rows =
     List.sort
       (fun (_, a) (_, b) ->
         match Int.compare b.timeouts a.timeouts with
-        | 0 -> Float.compare b.total_ms a.total_ms
+        | 0 -> Float.compare (total_cost b) (total_cost a)
         | c -> c)
       rows
   in
   let buf = Buffer.create 4096 in
   Buffer.add_string buf
-    ("rule_id,mode,files_candidate,files_run,not_run,total_ms,mean_ms,"
-   ^ "max_ms,worst_file,timeouts\n");
+    ("rule_id,mode,files_candidate,files_matched,files_spec,not_run,"
+   ^ "total_cost_ms,prefilter_ms,match_ms,spec_ms,mean_cost_ms,max_cost_ms,"
+   ^ "worst_file,timeouts\n");
   rows
   |> List.iter (fun (rule_id, a) ->
          let mode =
@@ -136,17 +174,20 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
            | Some m -> m
            | None -> ""
          in
-         let mean_ms =
-           if a.files_run = 0 then 0.0
-           else a.total_ms /. float_of_int a.files_run
+         (* A candidate that neither finished nor timed out never got past
+          * the matching pass's prefilter. *)
+         let not_run = a.files_candidate - a.files_matched - a.timeouts in
+         let cost = total_cost a in
+         let mean_cost =
+           if a.files_candidate = 0 then 0.0
+           else cost /. float_of_int a.files_candidate
          in
-         (* A candidate that neither finished nor timed out never made it
-          * past the engine's regexp prefilter. *)
-         let not_run = a.files_candidate - a.files_run - a.timeouts in
          Buffer.add_string buf
-           (Printf.sprintf "%s,%s,%d,%d,%d,%.3f,%.3f,%.3f,%s,%d\n"
+           (Printf.sprintf
+              "%s,%s,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%s,%d\n"
               (csv_escape rule_id) (csv_escape mode) a.files_candidate
-              a.files_run not_run a.total_ms mean_ms a.max_ms
+              a.files_matched a.files_spec not_run cost a.prefilter_ms
+              a.match_ms a.spec_ms mean_cost a.max_cost_ms
               (csv_escape a.worst_file)
               a.timeouts));
   UFile.write_file ~file:out_csv (Buffer.contents buf)
