@@ -166,7 +166,7 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
             m
               "%d file(s) hit --timeout-threshold and were abandoned; the \
                engine discards the per-rule times already collected on such \
-               a file, so total_ms undercounts there. Re-run with \
+              a file, so total_cost_ms undercounts there. Re-run with \
                --timeout-threshold=0 for complete timings."
               truncated);
         Logs.app ~src:Ir_pipeline_logs.src (fun m ->
