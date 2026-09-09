@@ -23,14 +23,15 @@ let with_sink (rules : Rule.t list) (f : Taint_timing.t -> 'a) : 'a =
     (fun () -> f (Taint_timing.make_sink rules))
 
 let file_timing ?(candidates = []) ?(prefilter = []) ?(matched = [])
-    ?(spec = []) ?(timed_out = []) ?(truncated = false) () :
-    Taint_timing.file_timing =
+    ?(spec = []) ?(match_timed_out = []) ?(spec_timed_out = [])
+    ?(truncated = false) () : Taint_timing.file_timing =
   {
     candidates;
     prefilter_times = prefilter;
     match_times = matched;
     spec_times = spec;
-    timed_out;
+    match_timed_out;
+    spec_timed_out;
     truncated;
   }
 
@@ -141,7 +142,7 @@ let test_timeouts_beat_measured_cost () =
            ~candidates:[ "times-out"; "merely-slow" ]
              (* the synthetic 0.0 the engine emits for a killed rule *)
            ~matched:[ ("times-out", 0.0); ("merely-slow", 900.0) ]
-           ~timed_out:[ "times-out" ] ());
+           ~match_timed_out:[ "times-out" ] ());
       let header, rows = report_of sink in
       Alcotest.(check string)
         "timed-out rule sorts first" "times-out"
@@ -151,6 +152,39 @@ let test_timeouts_beat_measured_cost () =
       check_field header rows "times-out" "files_matched" "0";
       (* Neither run nor screened out: it is accounted for by [timeouts]. *)
       check_field header rows "times-out" "not_run" "0")
+
+(* A rule can clear the matching pass and then be killed in the taint spec
+ * pass. The two timeouts mean opposite things for the measurements: the
+ * matching pass's is a synthetic zero to be thrown away, the spec pass's is
+ * a real partial measurement, and the completed match time is real either
+ * way. Pooling them would silently delete a good number. *)
+let test_spec_timeout_keeps_match_time () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing ~candidates:[ "r" ]
+           ~matched:[ ("r", 12.0) ]
+             (* what it burned before the kill *)
+           ~spec:[ ("r", 30.0) ] ~spec_timed_out:[ "r" ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "match_ms" "12.000";
+      check_field header rows "r" "spec_ms" "30.000";
+      check_field header rows "r" "total_cost_ms" "42.000";
+      check_field header rows "r" "files_matched" "1";
+      check_field header rows "r" "timeouts" "1";
+      (* It ran; it is not a rule the prefilter screened out. *)
+      check_field header rows "r" "not_run" "0")
+
+(* A rule killed in both passes on one file is one file, not two. *)
+let test_timeouts_are_counted_per_file () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing ~candidates:[ "r" ] ~matched:[ ("r", 0.0) ]
+           ~match_timed_out:[ "r" ] ~spec_timed_out:[ "r" ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "timeouts" "1";
+      check_field header rows "r" "files_candidate" "1";
+      check_field header rows "r" "match_ms" "0.000";
+      check_field header rows "r" "not_run" "0")
 
 (* Both prefilters can screen the same rule on the same file, and both
  * charges are real. *)
@@ -200,6 +234,10 @@ let tests =
       t "aggregates cost across files" test_aggregates_across_files;
       t "gives prefiltered rules a row" test_prefiltered_rule_still_gets_a_row;
       t "sorts timeouts above measured cost" test_timeouts_beat_measured_cost;
+      t "keeps the match time of a spec-pass timeout"
+        test_spec_timeout_keeps_match_time;
+      t "counts a doubly timed-out rule once per file"
+        test_timeouts_are_counted_per_file;
       t "charges screening per prefilter pass" test_screening_is_charged_per_pass;
       t "counts truncated files" test_truncated_files_are_counted;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;

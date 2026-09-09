@@ -175,7 +175,7 @@ let matched_pattern_of_range (rwm : Range_with_metavars.t) =
   | pattern -> Some pattern
 
 let collect_taint_entries (caps : < Cap.time_limit >)
-    ?on_spec_time ~(timeout : float option)
+    ?on_spec_time ?on_spec_timeout ~(timeout : float option)
     ~(timeout_threshold : int option) ~(infile_s : string)
     ~(ast : AST_generic.program) (taint_rules : Rule.taint_rule list) :
     Taint_serializer.taint_entries_t =
@@ -215,6 +215,12 @@ let collect_taint_entries (caps : < Cap.time_limit >)
           | None ->
               let rule_id = fst rule.Rule.id in
               timed_out := rule_id :: !timed_out;
+              (* Report every one of these, not just the [n]th: a rule killed
+               * below the threshold costs the run just as much, and the
+               * report is the only place that would show it. *)
+              (match on_spec_timeout with
+              | None -> ()
+              | Some f -> f rule_id);
               Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
                 m "Timeout on taint rule %s in %s" (Rule_ID.to_string rule_id)
                   infile_s);
@@ -300,7 +306,7 @@ let collect_taint_entries (caps : < Cap.time_limit >)
 
 let no_timing : Taint_timing.file_timing =
   { candidates = []; prefilter_times = []; match_times = []; spec_times = [];
-    timed_out = []; truncated = false }
+    match_timed_out = []; spec_timed_out = []; truncated = false }
 
 (* The rules [Match_rules.check] will actually consider for a file. It skips
  * [`SCA] rules for reasons unrelated to prefiltering and raises on
@@ -318,11 +324,13 @@ let benchmark_candidates (search_rules : Rule.t list) : string list =
          | `Steps _ ->
              None)
 
-(* Rules that exceeded [--timeout] surface as [Timeout] errors carrying their
+(* Rules the matching pass killed surface as [Timeout] errors carrying their
  * rule id. They also carry a [rule_match_time] of 0.0 (see
  * [Core_profiling.empty_rule_profiling]), so without pulling them out here a
- * rule that always times out would be reported as the cheapest one. *)
-let timed_out_rules_of_errors (errors : Core_error.t list) : string list =
+ * rule that always times out would be reported as the cheapest one. The
+ * taint spec pass reports its own timeouts separately, via
+ * [collect_taint_entries]'s [~on_spec_timeout]. *)
+let match_timed_out_rules_of_errors (errors : Core_error.t list) : string list =
   errors
   |> List.filter_map (fun (e : Core_error.t) ->
          match (e.Core_error.typ, e.Core_error.rule_id) with
@@ -413,7 +421,8 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
             prefilter_times = !prefilter_acc;
             match_times = harvest_match_times res;
             spec_times = [];
-            timed_out = timed_out_rules_of_errors errors;
+            match_timed_out = match_timed_out_rules_of_errors errors;
+            spec_timed_out = [];
             truncated = false;
           }
       in
@@ -437,7 +446,8 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
                 prefilter_times = !prefilter_acc;
                 match_times = [];
                 spec_times = [];
-                timed_out = rule_ids |> List_.map Rule_ID.to_string;
+                match_timed_out = rule_ids |> List_.map Rule_ID.to_string;
+                spec_timed_out = [];
                 truncated = true;
               });
         (* Abandoning the file is [Taint_pipeline]'s call, not ours: it counts
@@ -502,10 +512,21 @@ let parse_file (caps : < Cap.time_limit >)
             spec_acc :=
               (Rule_ID.to_string rule_id, seconds *. 1000.0) :: !spec_acc)
   in
-  (* [~truncated_by] carries the rule ids that made [--timeout-threshold]
-   * abandon the file inside the taint pass, so that file still gets a row
-   * instead of silently vanishing from the report. *)
-  let report_timing ?(truncated_by = []) () =
+  let spec_timed_out_acc : string list ref = ref [] in
+  let on_spec_timeout =
+    match on_timing with
+    | None -> None
+    | Some _ ->
+        Some
+          (fun rule_id ->
+            spec_timed_out_acc :=
+              Rule_ID.to_string rule_id :: !spec_timed_out_acc)
+  in
+  (* [~truncated] says [--timeout-threshold] abandoned the file inside the
+   * taint pass, so that file still gets a row instead of vanishing from the
+   * report. The rules involved need no separate mention: [on_spec_timeout]
+   * has already seen every one of them. *)
+  let report_timing ?(truncated = false) () =
     match on_timing with
     | None -> ()
     | Some f ->
@@ -515,8 +536,9 @@ let parse_file (caps : < Cap.time_limit >)
             Taint_timing.prefilter_times =
               !union_prefilter_acc @ timing.Taint_timing.prefilter_times;
             spec_times = !spec_acc;
-            timed_out = truncated_by @ timing.Taint_timing.timed_out;
-            truncated = truncated_by <> [] || timing.Taint_timing.truncated;
+            spec_timed_out =
+              !spec_timed_out_acc @ timing.Taint_timing.spec_timed_out;
+            truncated = truncated || timing.Taint_timing.truncated;
           }
   in
   match ar.taint_rules with
@@ -531,13 +553,14 @@ let parse_file (caps : < Cap.time_limit >)
       in
       let taint_entries =
         try
-          collect_taint_entries caps ?on_spec_time ~timeout ~timeout_threshold
-            ~infile_s:(Fpath.to_string infile) ~ast taint_rules
+          collect_taint_entries caps ?on_spec_time ?on_spec_timeout ~timeout
+            ~timeout_threshold ~infile_s:(Fpath.to_string infile) ~ast
+            taint_rules
         with
-        | Match_rules.File_timeout rule_ids ->
-            report_timing
-              ~truncated_by:(rule_ids |> List_.map Rule_ID.to_string) ();
-            raise (Match_rules.File_timeout rule_ids)
+        | Match_rules.File_timeout _ as exn ->
+            let e = Exception.catch exn in
+            report_timing ~truncated:true ();
+            Exception.reraise e
       in
       report_timing ();
       mk_parsed ~taint_entries ~matches ~errors ()

@@ -30,10 +30,17 @@ type file_timing = {
        * [Match_rules.check]. *)
   spec_times : (string * float) list;
       (* (rule_id, ms) taint spec matching, for the taint payload. *)
-  timed_out : string list;
-      (* Rule ids that hit [--timeout]. The engine reports these with a
-       * synthetic 0.0 match time, so they are tracked separately or the
-       * slowest rules would rank as the cheapest. *)
+  match_timed_out : string list;
+      (* Rule ids [--timeout] killed during [Match_rules.check]. The engine
+       * reports these with a synthetic 0.0 match time, so they are tracked
+       * separately or the slowest rules would rank as the cheapest. *)
+  spec_timed_out : string list;
+      (* Rule ids [--timeout] killed during taint spec matching. Kept apart
+       * from [match_timed_out] because the two mean different things for
+       * the measurements: this rule may have completed the matching pass,
+       * and its [match_times] entry is then a real number worth keeping.
+       * Its [spec_times] entry is real too - what it burned before the
+       * kill. The two lists are only pooled to count and sort timeouts. *)
   truncated : bool;
       (* [--timeout-threshold] abandoned this file, so the engine discarded
        * the match times of rules that had already finished on it. *)
@@ -60,7 +67,8 @@ val truncated_files : t -> int
     least one file gets a row, including rules both prefilters always
     rejected - those still show their screening cost.
 
-    Timed-out rules sort first, then descending [total_cost_ms]
+    [timeouts] counts the files where either pass killed the rule, once per
+    file. Timed-out rules sort first, then descending [total_cost_ms]
     ([prefilter_ms] + [match_ms] + [spec_ms]). [max_cost_ms] and
     [worst_file] track the worst single file by that same total, and
     [mean_cost_ms] is the total amortised over every file the rule was

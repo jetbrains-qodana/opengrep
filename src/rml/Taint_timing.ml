@@ -3,7 +3,8 @@ type file_timing = {
   prefilter_times : (string * float) list;
   match_times : (string * float) list;
   spec_times : (string * float) list;
-  timed_out : string list;
+  match_timed_out : string list;
+  spec_timed_out : string list;
   truncated : bool;
 }
 
@@ -21,7 +22,12 @@ type rule_acc = {
   (* Worst single file by combined cost, and which file that was. *)
   mutable max_cost_ms : float;
   mutable worst_file : string;
+  (* Files where either pass killed the rule; this is the reported count. *)
   mutable timeouts : int;
+  (* Of those, the ones the matching pass killed. Not reported on its own,
+   * but [not_run] is about the matching pass and would go negative if it
+   * subtracted a spec-pass timeout from a rule that matched fine. *)
+  mutable match_timeouts : int;
 }
 
 type t = {
@@ -63,7 +69,8 @@ let acc_for (sink : t) (rule_id : string) : rule_acc =
       let a =
         { files_candidate = 0; files_matched = 0; files_spec = 0;
           prefilter_ms = 0.0; match_ms = 0.0; spec_ms = 0.0;
-          max_cost_ms = 0.0; worst_file = ""; timeouts = 0 }
+          max_cost_ms = 0.0; worst_file = ""; timeouts = 0;
+          match_timeouts = 0 }
       in
       Hashtbl.add sink.accs rule_id a;
       a
@@ -79,22 +86,34 @@ let tally (entries : (string * float) list) : (string, float) Hashtbl.t =
          Hashtbl.replace t id (prev +. ms));
   t
 
+let set_of (ids : string list) : (string, unit) Hashtbl.t =
+  let t = Hashtbl.create (List.length ids + 1) in
+  ids |> List.iter (fun id -> Hashtbl.replace t id ());
+  t
+
 let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
   let prefilter = tally ft.prefilter_times in
   let spec = tally ft.spec_times in
-  (* A rule killed by [--timeout] is still reported by the engine, but with a
-   * synthetic 0.0 from [Core_profiling.empty_rule_profiling]. Counting that
-   * as a measurement would drag the averages down and rank the worst rules
-   * as the cheapest, so match columns cover completed runs only and timeouts
-   * are counted on their own. Keyed off [timed_out] rather than off
-   * [ms = 0.0], since a genuinely fast rule can measure 0.0 too. *)
-  let timed_out = Hashtbl.create (List.length ft.timed_out + 1) in
-  ft.timed_out |> List.iter (fun id -> Hashtbl.replace timed_out id ());
+  (* A rule the matching pass killed is still reported by the engine, but
+   * with a synthetic 0.0 from [Core_profiling.empty_rule_profiling].
+   * Counting that as a measurement would drag the averages down and rank the
+   * worst rules as the cheapest, so the match columns cover completed runs
+   * only. Keyed off [match_timed_out] rather than off [ms = 0.0], since a
+   * genuinely fast rule can measure 0.0 too.
+   *
+   * Only the matching pass's timeouts discard anything. A rule the spec pass
+   * killed may have completed the matching pass, and that measurement is
+   * real; so is the spec time itself, which is what the rule burned before
+   * being killed rather than a synthetic zero. *)
+  let match_timed_out = set_of ft.match_timed_out in
   let matched =
     tally
       (ft.match_times
-      |> List.filter (fun (id, _) -> not (Hashtbl.mem timed_out id)))
+      |> List.filter (fun (id, _) -> not (Hashtbl.mem match_timed_out id)))
   in
+  (* The reported [timeouts] column does not care which pass did the killing,
+   * and a rule killed in both passes on one file is still one file. *)
+  let timed_out = set_of (ft.match_timed_out @ ft.spec_timed_out) in
   (* Every rule mentioned anywhere for this file, so that a rule which only
    * ever pays screening still gets a row rather than vanishing. *)
   let touched = Hashtbl.create 256 in
@@ -103,7 +122,8 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
   prefilter |> Hashtbl.iter (fun id _ -> touch id);
   matched |> Hashtbl.iter (fun id _ -> touch id);
   spec |> Hashtbl.iter (fun id _ -> touch id);
-  ft.timed_out |> List.iter touch;
+  ft.match_timed_out |> List.iter touch;
+  ft.spec_timed_out |> List.iter touch;
   Mutex.protect sink.mutex (fun () ->
       if ft.truncated then sink.truncated <- sink.truncated + 1;
       touched
@@ -123,6 +143,8 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
                a.files_spec <- a.files_spec + 1;
              if Hashtbl.mem timed_out rule_id then
                a.timeouts <- a.timeouts + 1;
+             if Hashtbl.mem match_timed_out rule_id then
+               a.match_timeouts <- a.match_timeouts + 1;
              let cost = pf +. mt +. sp in
              if cost > a.max_cost_ms then begin
                a.max_cost_ms <- cost;
@@ -174,9 +196,13 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
            | Some m -> m
            | None -> ""
          in
-         (* A candidate that neither finished nor timed out never got past
-          * the matching pass's prefilter. *)
-         let not_run = a.files_candidate - a.files_matched - a.timeouts in
+         (* A candidate that neither finished nor was killed by the matching
+          * pass never got past that pass's prefilter. Spec-pass timeouts are
+          * deliberately not subtracted: such a rule may well have run to
+          * completion here. *)
+         let not_run =
+           a.files_candidate - a.files_matched - a.match_timeouts
+         in
          let cost = total_cost a in
          let mean_cost =
            if a.files_candidate = 0 then 0.0
