@@ -11,6 +11,11 @@ type t
 
 (** One file's worth of harvested engine profiling. *)
 type file_timing = {
+  candidates : string list;
+      (* Every rule handed to [Match_rules.check] for this file, i.e. already
+       * filtered for analyzer compatibility and deduplicated. A candidate
+       * that produced neither a timing nor a timeout was dropped by the
+       * engine's regexp prefilter. *)
   rule_times : (string * float) list;
       (* (rule_id, milliseconds) for every rule that ran to completion. *)
   timed_out : string list;
@@ -42,7 +47,12 @@ val record_file : t -> file_s:string -> file_timing -> unit
     [total_ms] column undercounts. *)
 val truncated_files : t -> int
 
-(** Write the per-rule report to [out_csv]. Rules that timed out come first,
+(** Write the per-rule report to [out_csv]. Every rule that was a candidate
+    on at least one file gets a row, including rules the prefilter always
+    rejected - those show [files_run = 0] and are the point of the
+    [files_candidate] and [not_run] columns.
+
+    Rules that timed out come first,
     then descending [total_ms]. The timing columns ([total_ms], [mean_ms],
     [max_ms], [files_run]) cover completed runs only: a timed-out rule is
     reported by the engine with a synthetic 0.0, so including it would make

@@ -1,4 +1,5 @@
 type file_timing = {
+  candidates : string list;
   rule_times : (string * float) list;
   timed_out : string list;
   truncated : bool;
@@ -6,6 +7,10 @@ type file_timing = {
 
 (* Running totals for one rule across the whole batch. *)
 type rule_acc = {
+  (* Files on which the engine was asked to consider this rule at all. The
+   * gap between this and [files_run] + [timeouts] is what the prefilter
+   * rejected. *)
+  mutable files_candidate : int;
   mutable files_run : int;
   mutable total_ms : float;
   mutable max_ms : float;
@@ -50,8 +55,8 @@ let acc_for (sink : t) (rule_id : string) : rule_acc =
   | Some a -> a
   | None ->
       let a =
-        { files_run = 0; total_ms = 0.0; max_ms = 0.0; worst_file = "";
-          timeouts = 0 }
+        { files_candidate = 0; files_run = 0; total_ms = 0.0; max_ms = 0.0;
+          worst_file = ""; timeouts = 0 }
       in
       Hashtbl.add sink.accs rule_id a;
       a
@@ -67,6 +72,12 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
   ft.timed_out |> List.iter (fun id -> Hashtbl.replace timed_out id ());
   Mutex.protect sink.mutex (fun () ->
       if ft.truncated then sink.truncated <- sink.truncated + 1;
+      (* Touch every candidate so a rule the prefilter always rejects still
+       * gets a row, rather than vanishing from the report entirely. *)
+      ft.candidates
+      |> List.iter (fun rule_id ->
+             let a = acc_for sink rule_id in
+             a.files_candidate <- a.files_candidate + 1);
       ft.rule_times
       |> List.iter (fun (rule_id, ms) ->
              if not (Hashtbl.mem timed_out rule_id) then begin
@@ -116,7 +127,8 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
   in
   let buf = Buffer.create 4096 in
   Buffer.add_string buf
-    "rule_id,mode,files_run,total_ms,mean_ms,max_ms,worst_file,timeouts\n";
+    ("rule_id,mode,files_candidate,files_run,not_run,total_ms,mean_ms,"
+   ^ "max_ms,worst_file,timeouts\n");
   rows
   |> List.iter (fun (rule_id, a) ->
          let mode =
@@ -128,10 +140,13 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
            if a.files_run = 0 then 0.0
            else a.total_ms /. float_of_int a.files_run
          in
+         (* A candidate that neither finished nor timed out never made it
+          * past the engine's regexp prefilter. *)
+         let not_run = a.files_candidate - a.files_run - a.timeouts in
          Buffer.add_string buf
-           (Printf.sprintf "%s,%s,%d,%.3f,%.3f,%.3f,%s,%d\n"
-              (csv_escape rule_id) (csv_escape mode) a.files_run a.total_ms
-              mean_ms a.max_ms
+           (Printf.sprintf "%s,%s,%d,%d,%d,%.3f,%.3f,%.3f,%s,%d\n"
+              (csv_escape rule_id) (csv_escape mode) a.files_candidate
+              a.files_run not_run a.total_ms mean_ms a.max_ms
               (csv_escape a.worst_file)
               a.timeouts));
   UFile.write_file ~file:out_csv (Buffer.contents buf)
