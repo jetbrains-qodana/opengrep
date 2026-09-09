@@ -1,5 +1,5 @@
 (* Per-rule cost report for the taint subcommand's benchmark mode
- * ([opengrep taint --logs <csv>]).
+ * ([opengrep taint --bench <csv>]).
  *
  * A rule can cost time in three distinct places, and a report showing only
  * one of them is actively misleading - a rule can look free while burning

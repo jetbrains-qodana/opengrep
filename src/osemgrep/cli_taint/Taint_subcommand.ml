@@ -120,24 +120,24 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
      * pass, so it needs [`All]; and they only mean anything if one file is
      * analysed at a time, so it overrides --jobs. *)
     let timing_sink =
-      conf.logs |> Option.map (fun _ -> Taint_timing.make_sink rules)
+      conf.bench |> Option.map (fun _ -> Taint_timing.make_sink rules)
     in
     let num_domains =
-      match conf.logs with
+      match conf.bench with
       | Some _ ->
           if conf.jobs > 1 then
             Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
-              m "--logs forces single threaded execution, ignoring --jobs %d"
+              m "--bench forces single threaded execution, ignoring --jobs %d"
                 conf.jobs);
           1
       | None -> conf.jobs
     in
     let mode : Taint_scan_config.mode =
-      match (conf.logs, conf.with_diagnostics) with
+      match (conf.bench, conf.with_diagnostics) with
       | Some _, false ->
           Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
             m
-              "--logs implies --with-diagnostics: the rule engine has to \
+              "--bench implies --with-diagnostics: the rule engine has to \
                run for there to be anything to time");
           `All
       | Some _, true -> `All
@@ -158,8 +158,8 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
         rules;
         timing_sink;
       };
-    (match (conf.logs, timing_sink) with
-    | Some logs_path_s, Some sink ->
+    (match (conf.bench, timing_sink) with
+    | Some bench_path_s, Some sink ->
         let truncated = Taint_timing.truncated_files sink in
         if truncated > 0 then
           Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
@@ -170,8 +170,8 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
                --timeout-threshold=0 for complete timings."
               truncated);
         Logs.app ~src:Ir_pipeline_logs.src (fun m ->
-          m "Writing per-rule timing report to %s" logs_path_s);
-        Taint_timing.write_csv sink ~out_csv:(Fpath.v logs_path_s)
+          m "Writing per-rule timing report to %s" bench_path_s);
+        Taint_timing.write_csv sink ~out_csv:(Fpath.v bench_path_s)
     | _ -> ());
     Exit_code.ok ~__LOC__)
 

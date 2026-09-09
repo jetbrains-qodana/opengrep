@@ -1,5 +1,5 @@
 (* Unit tests for [Taint_timing], the per-rule cost report behind
- * [opengrep taint --logs].
+ * [opengrep taint --bench].
  *
  * Everything the report does after the engine hands it a [file_timing] is
  * pure arithmetic, so none of this needs an engine run - which is the point:

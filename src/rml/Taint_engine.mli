@@ -34,7 +34,7 @@ val classify_rules_for_analyzer :
     [~timeout_threshold] rules, abandons the file. [None] means unbounded.
 
     [~on_timing] is invoked exactly once per call with the engine's per-rule
-    profiling for this file, for [opengrep taint --logs]. Under
+    profiling for this file, for [opengrep taint --bench]. Under
     [~mode:`Taint] there is no [Match_rules.check] pass, so the harvest is
     empty. Rules dropped by the prefilter never run and are absent from it.
 

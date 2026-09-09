@@ -21,7 +21,7 @@ type conf = {
   timeout : float option;
   timeout_threshold : int option;
   logging_level : Logs.level option;
-  logs : string option;
+  bench : string option;
 }
 
 (*****************************************************************************)
@@ -76,9 +76,9 @@ let o_jobs : int Term.t =
   in
   Arg.value (Arg.opt Arg.int (Domainslib_.get_cpu_count ()) info)
 
-let o_logs : string option Term.t =
+let o_bench : string option Term.t =
   let info =
-    Arg.info [ "logs" ] ~docv:"FILE"
+    Arg.info [ "bench" ] ~docv:"FILE"
       ~doc:
         "Benchmark mode. Write a csv per-rule cost report to $(docv), timed \
          out rules first then worst $(b,total_cost_ms). A rule can cost \
@@ -128,7 +128,7 @@ let o_timeout_threshold : int option Term.t =
             whole file is skipped. If not set (or 0), the file is never \
             skipped for timeouts. Note that when a file is skipped this way \
             the engine discards the timings already collected for it, so \
-            $(b,--logs) undercounts those rules.")
+            $(b,--bench) undercounts those rules.")
   in
   Arg.value (Arg.opt (Arg.some Arg.int) None info)
 
@@ -155,7 +155,7 @@ let o_debug : bool Term.t =
 (*************************************************************************)
 let cmdline_term : conf Term.t =
   let combine format jobs rules_file rules_path with_diagnostics timeout
-      timeout_threshold debug verbose logs =
+      timeout_threshold debug verbose bench =
     let logging_level =
       match (verbose, debug) with
       | _, true -> (* --debug *) Some Logs.Debug
@@ -171,13 +171,13 @@ let cmdline_term : conf Term.t =
       timeout;
       timeout_threshold;
       logging_level;
-      logs;
+      bench;
     }
   in
   Term.(
     const combine $ o_format $ o_jobs $ o_rules_file $ o_rules
     $ o_with_diagnostics $ o_timeout $ o_timeout_threshold $ o_debug $ o_verbose
-    $ o_logs)
+    $ o_bench)
 
 let parse_argv (argv : string array) : conf =
   let cmd : conf Cmd.t = Cmd.v cmdline_info cmdline_term in
