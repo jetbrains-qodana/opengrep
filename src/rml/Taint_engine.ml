@@ -345,14 +345,22 @@ let harvest_match_times (res : Core_result.matches_single_file) :
  * (already filtered for analyzer compatibility and deduplicated by
  * [classify_rules_for_analyzer]). Returns the matches and errors so callers
  * can convert them into diagnostics, plus the engine's per-rule timings for
- * the benchmark report. *)
+ * the benchmark report.
+ *
+ * [on_timing] is where a benchmark run's measurements go. On the normal path
+ * they are returned to the caller instead, which has the taint-pass
+ * measurements to merge in first; [on_timing] is only called directly on the
+ * [File_timeout] path, where there is no normal return and the taint pass
+ * will not run. Absent means no benchmarking, and then nothing here is
+ * measured or built. *)
 let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
-    ?(collect_timing = false) ~(timeout : float option)
-    ~(timeout_threshold : int option) (xtarget : Xtarget.t)
-    (search_rules : Rule.t list) :
+    ?(on_timing : (Taint_timing.file_timing -> unit) option)
+    ~(timeout : float option) ~(timeout_threshold : int option)
+    (xtarget : Xtarget.t) (search_rules : Rule.t list) :
     Core_match.t list * Core_error.t list * Taint_timing.file_timing =
   if search_rules = [] then ([], [], no_timing)
   else
+    let collect_timing = Option.is_some on_timing in
     let timeout_config =
       match timeout with
       | None -> None
@@ -411,29 +419,31 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
       in
       (res.matches, errors, timing)
     with
-    | Match_rules.File_timeout rule_ids ->
-        Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
-          m
-            "File timeout while computing diagnostics, rules: %s"
-            (rule_ids |> List_.map Rule_ID.to_string |> String.concat ","));
+    | Match_rules.File_timeout rule_ids as exn ->
+        let e = Exception.catch exn in
         (* [--timeout-threshold] aborted the file, so the engine threw away
          * the times of the rules that had already finished on it. All we can
-         * still recover is which rules timed out. *)
-        let timing : Taint_timing.file_timing =
-          if not collect_timing then no_timing
-          else
-            {
-              candidates = benchmark_candidates search_rules;
-              (* Whatever screening was paid for before the abort still
-               * happened, so keep it. *)
-              prefilter_times = !prefilter_acc;
-              match_times = [];
-              spec_times = [];
-              timed_out = rule_ids |> List_.map Rule_ID.to_string;
-              truncated = true;
-            }
-        in
-        ([], [], timing)
+         * still recover is which rules timed out. Record that much before
+         * the exception leaves: the caller's contract is that the file was
+         * abandoned, so it will not come back for the timing. *)
+        (match on_timing with
+        | None -> ()
+        | Some f ->
+            f
+              {
+                candidates = benchmark_candidates search_rules;
+                (* Whatever screening was paid for before the abort still
+                 * happened, so keep it. *)
+                prefilter_times = !prefilter_acc;
+                match_times = [];
+                spec_times = [];
+                timed_out = rule_ids |> List_.map Rule_ID.to_string;
+                truncated = true;
+              });
+        (* Abandoning the file is [Taint_pipeline]'s call, not ours: it counts
+         * the timeout and skips emitting the file. Benchmark mode must not
+         * change that. *)
+        Exception.reraise e
 
 (* Per-file pipeline: parse + naming + (optional) search engine + (optional)
  * taint engine. See [parse_file]'s doc in the .mli for the public contract.
@@ -464,8 +474,7 @@ let parse_file (caps : < Cap.time_limit >)
   let matches, errors, timing =
     match mode with
     | `All ->
-        run_rules_engine_for_diagnostics caps
-          ~collect_timing:(Option.is_some on_timing) ~timeout
+        run_rules_engine_for_diagnostics caps ?on_timing ~timeout
           ~timeout_threshold xtarget ar.search_rules
     | `Taint -> ([], [], no_timing)
   in
