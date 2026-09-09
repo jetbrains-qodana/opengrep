@@ -11,9 +11,7 @@ type file_timing = {
 
 (* Running totals for one rule across the whole batch. *)
 type rule_acc = {
-  (* Files on which the engine was asked to consider this rule at all. The
-   * gap between this and [files_matched] + [timeouts] is what the matching
-   * pass's prefilter rejected. *)
+  (* Files on which the engine was asked to consider this rule at all. *)
   mutable files_candidate : int;
   mutable files_matched : int;
   mutable files_spec : int;
