@@ -305,8 +305,9 @@ let collect_taint_entries (caps : < Cap.time_limit >)
     (taint_sources, taint_sinks, taint_sanitizers, taint_propagators)
 
 let no_timing : Taint_timing.file_timing =
-  { candidates = []; prefilter_times = []; match_times = []; spec_times = [];
-    match_timed_out = []; spec_timed_out = []; truncated = false }
+  { candidates = []; prefilter_times = []; prefilter_rejected = [];
+    match_times = []; spec_times = []; match_timed_out = [];
+    spec_timed_out = []; truncated = false }
 
 (* The rules [Match_rules.check] will actually consider for a file. It skips
  * [`SCA] rules for reasons unrelated to prefiltering and raises on
@@ -392,13 +393,18 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
      * outside benchmark mode, which is also what keeps [check] from timing
      * anything. *)
     let prefilter_acc : (string * float) list ref = ref [] in
+    let rejected_acc : string list ref = ref [] in
     let on_prefilter =
       if not collect_timing then None
       else
         Some
-          (fun rule_id _survived (seconds : float) ->
-            prefilter_acc :=
-              (Rule_ID.to_string rule_id, seconds *. 1000.0) :: !prefilter_acc)
+          (fun rule_id survived (seconds : float) ->
+            let id = Rule_ID.to_string rule_id in
+            prefilter_acc := (id, seconds *. 1000.0) :: !prefilter_acc;
+            (* [group_rules] screens the whole rule list before it runs any
+             * of it, so this set is complete even when the run is cut short
+             * partway through the matching. *)
+            if not survived then rejected_acc := id :: !rejected_acc)
     in
     try
       let res =
@@ -419,6 +425,7 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
           {
             candidates = benchmark_candidates search_rules;
             prefilter_times = !prefilter_acc;
+            prefilter_rejected = !rejected_acc;
             match_times = harvest_match_times res;
             spec_times = [];
             match_timed_out = match_timed_out_rules_of_errors errors;
@@ -441,9 +448,15 @@ let run_rules_engine_for_diagnostics (caps : < Cap.time_limit >)
             f
               {
                 candidates = benchmark_candidates search_rules;
-                (* Whatever screening was paid for before the abort still
-                 * happened, so keep it. *)
+                (* Screening finished before the matching began, so both
+                 * its cost and its verdict are complete and worth keeping -
+                 * they are the only thing here that survives the abort
+                 * intact. The rules that had already matched lost their
+                 * times with the file's profiling, and the ones past the
+                 * abort were never reached; neither is a rejection, and
+                 * neither is counted as one. *)
                 prefilter_times = !prefilter_acc;
+                prefilter_rejected = !rejected_acc;
                 match_times = [];
                 spec_times = [];
                 match_timed_out = rule_ids |> List_.map Rule_ID.to_string;
