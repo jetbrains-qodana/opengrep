@@ -141,7 +141,7 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
              if Hashtbl.mem rejected rule_id then
                a.files_not_run <- a.files_not_run + 1;
              let cost = pf +. mt +. sp in
-             if cost > a.max_cost_ms then begin
+             if a.files_candidate = 1 || cost > a.max_cost_ms then begin
                a.max_cost_ms <- cost;
                a.worst_file <- file_s
              end))

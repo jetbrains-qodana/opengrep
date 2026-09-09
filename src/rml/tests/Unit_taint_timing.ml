@@ -248,6 +248,28 @@ let test_truncated_files_are_counted () =
         (file_timing ~candidates:[ "r" ] ~matched:[ ("r", 1.0) ] ());
       Alcotest.(check int) "truncated files" 1 (Taint_timing.truncated_files sink))
 
+(* [Common.with_time] is a [gettimeofday] delta, so a prefilter decision
+ * finishing inside a microsecond measures exactly 0.0 - and a rule that is a
+ * candidate on one cheap file can therefore total 0.0. The column is
+ * documented to name the worst file, so it has to name one anyway. The same
+ * test pins the tie-breaking: equal costs keep the earliest file, and a
+ * dearer file still takes over. *)
+let test_zero_cost_candidate_still_names_a_file () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing ~candidates:[ "r" ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "max_cost_ms" "0.000";
+      check_field header rows "r" "worst_file" "a.py";
+      Taint_timing.record_file sink ~file_s:"b.py"
+        (file_timing ~candidates:[ "r" ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "worst_file" "a.py";
+      Taint_timing.record_file sink ~file_s:"c.py"
+        (file_timing ~candidates:[ "r" ] ~matched:[ ("r", 1.0) ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "worst_file" "c.py")
+
 (* Rule ids are author-controlled and end up in a CSV. *)
 let test_rule_id_is_csv_escaped () =
   with_sink [] (fun sink ->
@@ -283,5 +305,7 @@ let tests =
         test_truncation_does_not_invent_rejections;
       t "charges screening per prefilter pass" test_screening_is_charged_per_pass;
       t "counts truncated files" test_truncated_files_are_counted;
+      t "names a worst file even at zero cost"
+        test_zero_cost_candidate_still_names_a_file;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;
     ]
