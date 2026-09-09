@@ -147,7 +147,15 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
 let truncated_files (sink : t) : int =
   Mutex.protect sink.mutex (fun () -> sink.truncated)
 
+let neutralize_formula (s : string) : string =
+  if s = "" then s
+  else
+    match s.[0] with
+    | '=' | '+' | '-' | '@' | '\t' | '\r' -> "'" ^ s
+    | _ -> s
+
 let csv_escape (s : string) : string =
+  let s = neutralize_formula s in
   let needs_quoting =
     String.contains s ',' || String.contains s '"' || String.contains s '\n'
     || String.contains s '\r'
