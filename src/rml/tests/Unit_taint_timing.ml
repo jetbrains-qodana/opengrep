@@ -304,6 +304,32 @@ let test_rule_id_is_csv_escaped () =
             (String.starts_with ~prefix:{|"weird,""id"|}
                (List.nth (String.split_on_char '\n' body) 1))))
 
+(* The report is meant to be opened in a spreadsheet, where a cell opening
+ * with [=], [+], [-] or [@] is a formula rather than a label. Rule ids come
+ * from the loaded rule pack and paths from the scanned repo, so neither can
+ * be trusted to be inert, and CSV quoting alone does not make them so. *)
+let test_formula_leading_fields_are_neutralized () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:{|@SUM(A1)|}
+        (file_timing ~candidates:[ {|=1+1|} ] ());
+      let header, rows = report_of sink in
+      check_field header rows {|'=1+1|} "worst_file" {|'@SUM(A1)|};
+      (* A field that is both a formula and needs quoting gets both, in that
+       * order, and still round-trips as a single cell. *)
+      Taint_timing.record_file sink ~file_s:"b.py"
+        (file_timing ~candidates:[ {|-a,b|} ] ());
+      let file = Filename.temp_file "unit_taint_timing" ".csv" in
+      Fun.protect
+        ~finally:(fun () -> Sys.remove file)
+        (fun () ->
+          Taint_timing.write_csv sink ~out_csv:(Fpath.v file);
+          let body = UFile.read_file (Fpath.v file) in
+          Alcotest.(check bool)
+            "neutralised inside the quotes" true
+            (body
+            |> String.split_on_char '\n'
+            |> List.exists (String.starts_with ~prefix:{|"'-a,b"|}))))
+
 (*****************************************************************************)
 (* Entry point *)
 (*****************************************************************************)
@@ -328,4 +354,6 @@ let tests =
       t "lets not_run and timeouts overlap"
         test_not_run_and_timeouts_can_overlap;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;
+      t "neutralizes spreadsheet formulas"
+        test_formula_leading_fields_are_neutralized;
     ]
