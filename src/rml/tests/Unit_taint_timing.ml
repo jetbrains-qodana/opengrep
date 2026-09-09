@@ -186,6 +186,21 @@ let test_timeouts_are_counted_per_file () =
       check_field header rows "r" "match_ms" "0.000";
       check_field header rows "r" "not_run" "0")
 
+(* [Match_rules] screens every rule, including the `SCA and `Steps ones it
+ * then refuses to run, so a screening cost can arrive for a rule that is
+ * deliberately not a candidate. Such a rule must not gain a row: it would be
+ * counted in files_candidate and reported as prefiltered away. *)
+let test_only_candidates_get_rows () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing ~candidates:[ "real" ]
+           ~prefilter:[ ("real", 1.0); ("unsupported-mode", 0.5) ]
+           ());
+      let header, rows = report_of sink in
+      Alcotest.(check int) "exactly one row" 1 (List.length rows);
+      check_field header rows "real" "files_candidate" "1";
+      check_field header rows "real" "prefilter_ms" "1.000")
+
 (* Both prefilters can screen the same rule on the same file, and both
  * charges are real. *)
 let test_screening_is_charged_per_pass () =
@@ -238,6 +253,7 @@ let tests =
         test_spec_timeout_keeps_match_time;
       t "counts a doubly timed-out rule once per file"
         test_timeouts_are_counted_per_file;
+      t "gives rows to candidates only" test_only_candidates_get_rows;
       t "charges screening per prefilter pass" test_screening_is_charged_per_pass;
       t "counts truncated files" test_truncated_files_are_counted;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;

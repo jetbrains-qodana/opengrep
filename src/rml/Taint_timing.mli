@@ -22,7 +22,9 @@ type t
 type file_timing = {
   candidates : string list;
       (* Every rule handed to [Match_rules.check] for this file, already
-       * filtered for analyzer compatibility and deduplicated. *)
+       * filtered for analyzer compatibility and deduplicated. These and only
+       * these get a row: a measurement reported for a rule that is not a
+       * candidate is dropped rather than inventing one. *)
   prefilter_times : (string * float) list;
       (* (rule_id, ms) screening cost, from either prefilter. *)
   match_times : (string * float) list;

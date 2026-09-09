@@ -114,16 +114,7 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
   (* The reported [timeouts] column does not care which pass did the killing,
    * and a rule killed in both passes on one file is still one file. *)
   let timed_out = set_of (ft.match_timed_out @ ft.spec_timed_out) in
-  (* Every rule mentioned anywhere for this file, so that a rule which only
-   * ever pays screening still gets a row rather than vanishing. *)
-  let touched = Hashtbl.create 256 in
-  let touch id = Hashtbl.replace touched id () in
-  ft.candidates |> List.iter touch;
-  prefilter |> Hashtbl.iter (fun id _ -> touch id);
-  matched |> Hashtbl.iter (fun id _ -> touch id);
-  spec |> Hashtbl.iter (fun id _ -> touch id);
-  ft.match_timed_out |> List.iter touch;
-  ft.spec_timed_out |> List.iter touch;
+  let touched = set_of ft.candidates in
   Mutex.protect sink.mutex (fun () ->
       if ft.truncated then sink.truncated <- sink.truncated + 1;
       touched
