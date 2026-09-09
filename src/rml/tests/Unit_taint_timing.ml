@@ -22,12 +22,13 @@ let with_sink (rules : Rule.t list) (f : Taint_timing.t -> 'a) : 'a =
     ~finally:(fun () -> Core_profiling.profiling := saved)
     (fun () -> f (Taint_timing.make_sink rules))
 
-let file_timing ?(candidates = []) ?(prefilter = []) ?(matched = [])
-    ?(spec = []) ?(match_timed_out = []) ?(spec_timed_out = [])
-    ?(truncated = false) () : Taint_timing.file_timing =
+let file_timing ?(candidates = []) ?(prefilter = []) ?(rejected = [])
+    ?(matched = []) ?(spec = []) ?(match_timed_out = [])
+    ?(spec_timed_out = []) ?(truncated = false) () : Taint_timing.file_timing =
   {
     candidates;
     prefilter_times = prefilter;
+    prefilter_rejected = rejected;
     match_times = matched;
     spec_times = spec;
     match_timed_out;
@@ -117,10 +118,12 @@ let test_prefiltered_rule_still_gets_a_row () =
   with_sink [] (fun sink ->
       List.iter
         (fun file_s ->
+          let ran_here = file_s = "a.py" in
           Taint_timing.record_file sink ~file_s
             (file_timing ~candidates:[ "screened"; "ran" ]
-               ~matched:
-                 (if file_s = "a.py" then [ ("ran", 4.0) ] else [])
+               ~rejected:
+                 (if ran_here then [ "screened" ] else [ "screened"; "ran" ])
+               ~matched:(if ran_here then [ ("ran", 4.0) ] else [])
                ()))
         [ "a.py"; "b.py"; "c.py" ];
       let header, rows = report_of sink in
@@ -201,6 +204,28 @@ let test_only_candidates_get_rows () =
       check_field header rows "real" "files_candidate" "1";
       check_field header rows "real" "prefilter_ms" "1.000")
 
+(* [--timeout-threshold] makes the engine discard the whole file's match
+ * times, so on such a file "no match time" says nothing about whether the
+ * rule ran. Only the rule the prefilter actually rejected may be counted as
+ * not run; the one that finished before the abort and the one the abort
+ * never reached are simply unaccounted for. *)
+let test_truncation_does_not_invent_rejections () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing
+           ~candidates:[ "finished"; "killed"; "unreached"; "screened" ]
+           ~rejected:[ "screened" ]
+             (* the engine threw the completed times away with the file *)
+           ~matched:[] ~match_timed_out:[ "killed" ] ~truncated:true ());
+      let header, rows = report_of sink in
+      check_field header rows "screened" "not_run" "1";
+      check_field header rows "finished" "not_run" "0";
+      check_field header rows "unreached" "not_run" "0";
+      check_field header rows "killed" "not_run" "0";
+      check_field header rows "killed" "timeouts" "1";
+      Alcotest.(check int) "truncated file counted" 1
+        (Taint_timing.truncated_files sink))
+
 (* Both prefilters can screen the same rule on the same file, and both
  * charges are real. *)
 let test_screening_is_charged_per_pass () =
@@ -254,6 +279,8 @@ let tests =
       t "counts a doubly timed-out rule once per file"
         test_timeouts_are_counted_per_file;
       t "gives rows to candidates only" test_only_candidates_get_rows;
+      t "does not invent rejections on a truncated file"
+        test_truncation_does_not_invent_rejections;
       t "charges screening per prefilter pass" test_screening_is_charged_per_pass;
       t "counts truncated files" test_truncated_files_are_counted;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;

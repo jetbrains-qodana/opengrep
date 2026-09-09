@@ -27,6 +27,18 @@ type file_timing = {
        * candidate is dropped rather than inventing one. *)
   prefilter_times : (string * float) list;
       (* (rule_id, ms) screening cost, from either prefilter. *)
+  prefilter_rejected : string list;
+      (* Rule ids the *matching pass's* prefilter screened out, as the engine
+       * decided it rather than as the report might guess it. The union taint
+       * prefilter's rejections do not belong here: those cost a rule its
+       * spec matching, not its matching pass, and show up as an absent
+       * [spec_times] entry instead.
+
+       * This has to be recorded, not inferred from a missing match time. On
+       * a [truncated] file the engine throws away the times of rules that
+       * had already finished, and rules after the abort were never reached;
+       * calling either of those "screened out" would be a lie about the one
+       * thing the report exists to tell you. *)
   match_times : (string * float) list;
       (* (rule_id, ms) for rules that ran to completion under
        * [Match_rules.check]. *)
@@ -70,7 +82,11 @@ val truncated_files : t -> int
     rejected - those still show their screening cost.
 
     [timeouts] counts the files where either pass killed the rule, once per
-    file. Timed-out rules sort first, then descending [total_cost_ms]
+    file, and [not_run] the files whose matching prefilter rejected it. On a
+    file the engine ran to completion those two plus [files_matched] account
+    for every candidate; on a truncated one they do not, and the shortfall is
+    the part that cannot be attributed. Timed-out rules sort first, then
+    descending [total_cost_ms]
     ([prefilter_ms] + [match_ms] + [spec_ms]). [max_cost_ms] and
     [worst_file] track the worst single file by that same total, and
     [mean_cost_ms] is the total amortised over every file the rule was

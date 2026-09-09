@@ -1,6 +1,7 @@
 type file_timing = {
   candidates : string list;
   prefilter_times : (string * float) list;
+  prefilter_rejected : string list;
   match_times : (string * float) list;
   spec_times : (string * float) list;
   match_timed_out : string list;
@@ -24,10 +25,12 @@ type rule_acc = {
   mutable worst_file : string;
   (* Files where either pass killed the rule; this is the reported count. *)
   mutable timeouts : int;
-  (* Of those, the ones the matching pass killed. Not reported on its own,
-   * but [not_run] is about the matching pass and would go negative if it
-   * subtracted a spec-pass timeout from a rule that matched fine. *)
-  mutable match_timeouts : int;
+  (* Files where the matching pass's prefilter screened the rule out. Counted
+   * from the engine's own decision rather than inferred from the absence of
+   * a match time: on a file [--timeout-threshold] abandoned, rules that had
+   * already finished lose their times too, and rules past the abort were
+   * never reached at all. Neither was screened out. *)
+  mutable files_not_run : int;
 }
 
 type t = {
@@ -70,7 +73,7 @@ let acc_for (sink : t) (rule_id : string) : rule_acc =
         { files_candidate = 0; files_matched = 0; files_spec = 0;
           prefilter_ms = 0.0; match_ms = 0.0; spec_ms = 0.0;
           max_cost_ms = 0.0; worst_file = ""; timeouts = 0;
-          match_timeouts = 0 }
+          files_not_run = 0 }
       in
       Hashtbl.add sink.accs rule_id a;
       a
@@ -114,6 +117,7 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
   (* The reported [timeouts] column does not care which pass did the killing,
    * and a rule killed in both passes on one file is still one file. *)
   let timed_out = set_of (ft.match_timed_out @ ft.spec_timed_out) in
+  let rejected = set_of ft.prefilter_rejected in
   let touched = set_of ft.candidates in
   Mutex.protect sink.mutex (fun () ->
       if ft.truncated then sink.truncated <- sink.truncated + 1;
@@ -134,8 +138,8 @@ let record_file (sink : t) ~(file_s : string) (ft : file_timing) : unit =
                a.files_spec <- a.files_spec + 1;
              if Hashtbl.mem timed_out rule_id then
                a.timeouts <- a.timeouts + 1;
-             if Hashtbl.mem match_timed_out rule_id then
-               a.match_timeouts <- a.match_timeouts + 1;
+             if Hashtbl.mem rejected rule_id then
+               a.files_not_run <- a.files_not_run + 1;
              let cost = pf +. mt +. sp in
              if cost > a.max_cost_ms then begin
                a.max_cost_ms <- cost;
@@ -187,13 +191,12 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
            | Some m -> m
            | None -> ""
          in
-         (* A candidate that neither finished nor was killed by the matching
-          * pass never got past that pass's prefilter. Spec-pass timeouts are
-          * deliberately not subtracted: such a rule may well have run to
-          * completion here. *)
-         let not_run =
-           a.files_candidate - a.files_matched - a.match_timeouts
-         in
+         (* [files_matched + timeouts + not_run] adds up to
+          * [files_candidate] on any file the engine saw through to the end.
+          * On a truncated one it falls short, and the gap - rules that
+          * finished but lost their times, and rules the abort never reached
+          * - is exactly what cannot be attributed. *)
+         let not_run = a.files_not_run in
          let cost = total_cost a in
          let mean_cost =
            if a.files_candidate = 0 then 0.0
