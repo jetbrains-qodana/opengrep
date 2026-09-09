@@ -38,6 +38,12 @@ val classify_rules_for_analyzer :
     [~mode:`Taint] there is no [Match_rules.check] pass, so the harvest is
     empty. Rules dropped by the prefilter never run and are absent from it.
 
+    Raises [Match_rules.File_timeout] when [~timeout_threshold] rules have
+    timed out on this file, from either pass, and the file is abandoned - it
+    is the caller's job to decide what that means. [~on_timing] is called
+    with whatever had been measured before the abort, so a benchmark run
+    still gets a row for the file.
+
     The caller is responsible for matching [analyzer_rules] to the file's
     language; passing rules for a wrong analyzer will silently produce no
     taint entries (the engine's prefilter will reject everything) *)
