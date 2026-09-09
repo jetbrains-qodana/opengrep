@@ -82,14 +82,20 @@ val truncated_files : t -> int
     rejected - those still show their screening cost.
 
     [timeouts] counts the files where either pass killed the rule, once per
-    file, and [not_run] the files whose matching prefilter rejected it. On a
-    file the engine ran to completion those two plus [files_matched] account
-    for every candidate; on a truncated one they do not, and the shortfall is
-    the part that cannot be attributed. Timed-out rules sort first, then
-    descending [total_cost_ms]
+    file, and [not_run] the files whose matching prefilter rejected it.
+    Together with [files_matched] these do not partition [files_candidate]
+    and can overlap: the two passes screen independently, and the taint
+    payload pass uses a looser union prefilter, so a rule the matching
+    prefilter rejected can still run in the spec pass and time out there,
+    counting in both columns for the same file. On a truncated file the sum
+    falls short instead, the missing part being what cannot be attributed.
+    Read each column on its own rather than reconciling them against
+    [files_candidate].
+
+    Timed-out rules sort first, then descending [total_cost_ms]
     ([prefilter_ms] + [match_ms] + [spec_ms]). [max_cost_ms] and
-    [worst_file] track the worst single file by that same total, and
-    [mean_cost_ms] is the total amortised over every file the rule was
-    offered - the fairest way to compare rules with very different
-    [files_candidate]. *)
+    [worst_file] track the worst single file by that same total; a rule that
+    measured 0.0 everywhere still names one. [mean_cost_ms] is the total
+    amortised over every file the rule was offered - the fairest way to
+    compare rules with very different [files_candidate]. *)
 val write_csv : t -> out_csv:Fpath.t -> unit
