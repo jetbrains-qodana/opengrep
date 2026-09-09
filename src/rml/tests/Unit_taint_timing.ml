@@ -270,6 +270,24 @@ let test_zero_cost_candidate_still_names_a_file () =
       let header, rows = report_of sink in
       check_field header rows "r" "worst_file" "c.py")
 
+(* The two passes screen independently and the taint payload pass uses the
+ * looser union prefilter, so one candidate file can be rejected for matching
+ * and still be run - and killed - in spec matching. Both charges are real,
+ * so [not_run] and [timeouts] both count it and their sum overshoots
+ * [files_candidate]. Not a partition, by design; see [write_csv]'s doc. *)
+let test_not_run_and_timeouts_can_overlap () =
+  with_sink [] (fun sink ->
+      Taint_timing.record_file sink ~file_s:"a.py"
+        (file_timing ~candidates:[ "r" ] ~rejected:[ "r" ]
+           ~spec:[ ("r", 5.0) ] ~spec_timed_out:[ "r" ] ());
+      let header, rows = report_of sink in
+      check_field header rows "r" "files_candidate" "1";
+      check_field header rows "r" "files_matched" "0";
+      check_field header rows "r" "not_run" "1";
+      check_field header rows "r" "timeouts" "1";
+      check_field header rows "r" "files_spec" "1";
+      check_field header rows "r" "spec_ms" "5.000")
+
 (* Rule ids are author-controlled and end up in a CSV. *)
 let test_rule_id_is_csv_escaped () =
   with_sink [] (fun sink ->
@@ -307,5 +325,7 @@ let tests =
       t "counts truncated files" test_truncated_files_are_counted;
       t "names a worst file even at zero cost"
         test_zero_cost_candidate_still_names_a_file;
+      t "lets not_run and timeouts overlap"
+        test_not_run_and_timeouts_can_overlap;
       t "escapes rule ids in the csv" test_rule_id_is_csv_escaped;
     ]

@@ -191,11 +191,15 @@ let write_csv (sink : t) ~(out_csv : Fpath.t) : unit =
            | Some m -> m
            | None -> ""
          in
-         (* [files_matched + timeouts + not_run] adds up to
-          * [files_candidate] on any file the engine saw through to the end.
-          * On a truncated one it falls short, and the gap - rules that
-          * finished but lost their times, and rules the abort never reached
-          * - is exactly what cannot be attributed. *)
+         (* [files_matched], [timeouts] and [not_run] are not a partition
+          * of [files_candidate]. The two passes screen independently and
+          * the taint payload pass uses the looser union prefilter, so one
+          * candidate file can land in both [not_run] and [timeouts] -
+          * rejected for matching, then run and killed in spec matching -
+          * and the sum then exceeds [files_candidate]. On a truncated file
+          * it falls short instead, the gap being rules that finished but
+          * lost their times and rules the abort never reached. Each column
+          * only means anything on its own. *)
          let not_run = a.files_not_run in
          let cost = total_cost a in
          let mean_cost =
