@@ -116,11 +116,39 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
       m "No files provided on stdin");
     Exit_code.ok ~__LOC__)
   else (
+    (* Benchmark mode. The per-rule times come from the [Match_rules.check]
+     * pass, so it needs [`All]; and they only mean anything if one file is
+     * analysed at a time, so it overrides --jobs. *)
+    let timing_sink =
+      conf.bench |> Option.map (fun _ -> Taint_timing.make_sink rules)
+    in
+    let num_domains =
+      match conf.bench with
+      | Some _ ->
+          if conf.jobs > 1 then
+            Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+              m "--bench forces single threaded execution, ignoring --jobs %d"
+                conf.jobs);
+          1
+      | None -> conf.jobs
+    in
+    let mode : Taint_scan_config.mode =
+      match (conf.bench, conf.with_diagnostics) with
+      | Some _, false ->
+          Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+            m
+              "--bench implies --with-diagnostics: the rule engine has to \
+               run for there to be anything to time");
+          `All
+      | Some _, true -> `All
+      | None, true -> `All
+      | None, false -> `Taint
+    in
     Taint_pipeline.parse_files_ast
       (caps :> < Cap.fork ; Cap.time_limit >)
       {
-        num_domains = conf.jobs;
-        mode = if conf.with_diagnostics then `All else `Taint;
+        num_domains;
+        mode;
         timeout = conf.timeout;
         timeout_threshold = conf.timeout_threshold;
         on_parsed =
@@ -128,7 +156,23 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
             ~ast_format:conf.format ~rules;
         files;
         rules;
+        timing_sink;
       };
+    (match (conf.bench, timing_sink) with
+    | Some bench_path_s, Some sink ->
+        let truncated = Taint_timing.truncated_files sink in
+        if truncated > 0 then
+          Logs.warn ~src:Ir_pipeline_logs.src (fun m ->
+            m
+              "%d file(s) hit --timeout-threshold and were abandoned; the \
+               engine discards the per-rule times already collected on such \
+              a file, so total_cost_ms undercounts there. Re-run with \
+               --timeout-threshold=0 for complete timings."
+              truncated);
+        Logs.app ~src:Ir_pipeline_logs.src (fun m ->
+          m "Writing per-rule timing report to %s" bench_path_s);
+        Taint_timing.write_csv sink ~out_csv:(Fpath.v bench_path_s)
+    | _ -> ());
     Exit_code.ok ~__LOC__)
 
 (*****************************************************************************)

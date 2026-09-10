@@ -154,12 +154,29 @@ let is_relevant_rule_for_xtarget r xconf xtarget =
 
 (* This function separates out rules into groups of taint rules by languages,
    all of the nontaint rules, and the rules which we skip due to prefiltering.
+
+   [on_prefilter] observes the prefilter decision for each rule: its id,
+   whether the rule survived, and how long the decision took in seconds.
+   Prefiltering happens here, before any per-rule match timing starts, so
+   this is the only place its cost can be attributed per rule. Only the
+   benchmark mode of 'opengrep taint' passes it; when it is absent the
+   clock is not read at all, so the scan path pays nothing for it.
 *)
-let group_rules xconf rules xtarget =
+let group_rules ?on_prefilter xconf rules xtarget =
   let relevant_taint_rules, relevant_nontaint_rules, skipped_rules =
     rules
     |> Either_.partition_either3 (fun r ->
-           let relevant_rule = is_relevant_rule_for_xtarget r xconf xtarget in
+           let relevant_rule =
+             match on_prefilter with
+             | None -> is_relevant_rule_for_xtarget r xconf xtarget
+             | Some f ->
+                 let relevant, seconds =
+                   Common.with_time (fun () ->
+                       is_relevant_rule_for_xtarget r xconf xtarget)
+                 in
+                 f (fst r.R.id) relevant seconds;
+                 relevant
+           in
            match r.R.mode with
            | _ when not relevant_rule -> Right3 r
            | `Taint _ as mode -> Left3 { r with mode }
@@ -276,6 +293,7 @@ let scc_match_hook (match_hook : Core_match.t -> unit)
 
 let check
     ?(dependency_match_table : Match_SCA_mode.dependency_match_table option)
+    ?on_prefilter
     ~match_hook ~(timeout : timeout_config option) (xconf : Match_env.xconfig)
     (rules : Rule.rules) (xtarget : Xtarget.t) : Core_result.matches_single_file
     =
@@ -313,7 +331,7 @@ let check
      TODO: use skipped_rules to call the commented skipped_target_of_rule?
   *)
   let taint_rules_groups, nontaint_rules, _skipped_rules =
-    group_rules xconf rules xtarget
+    group_rules ?on_prefilter xconf rules xtarget
   in
   let res_taint_rules =
     taint_rules_groups
