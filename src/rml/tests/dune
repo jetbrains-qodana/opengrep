@@ -1,0 +1,10 @@
+(library
+ (public_name semgrep.rml.tests)
+ (name semgrep_rml_tests)
+ (wrapped false)
+ (libraries
+   commons
+   semgrep.core
+   semgrep.rml
+ )
+)

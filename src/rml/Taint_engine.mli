@@ -30,6 +30,20 @@ val classify_rules_for_analyzer :
       the taint engine, and populates [parsed_file.matches] and
       [parsed_file.errors] so the caller can render diagnostics from them.
 
+    [~timeout] bounds each rule's run on this file and, past
+    [~timeout_threshold] rules, abandons the file. [None] means unbounded.
+
+    [~on_timing] is invoked exactly once per call with the engine's per-rule
+    profiling for this file, for [opengrep taint --bench]. Under
+    [~mode:`Taint] there is no [Match_rules.check] pass, so the harvest is
+    empty. Rules dropped by the prefilter never run and are absent from it.
+
+    Raises [Match_rules.File_timeout] when [~timeout_threshold] rules have
+    timed out on this file, from either pass, and the file is abandoned - it
+    is the caller's job to decide what that means. [~on_timing] is called
+    with whatever had been measured before the abort, so a benchmark run
+    still gets a row for the file.
+
     The caller is responsible for matching [analyzer_rules] to the file's
     language; passing rules for a wrong analyzer will silently produce no
     taint entries (the engine's prefilter will reject everything) *)
@@ -38,4 +52,5 @@ val parse_file :
   ?mode:Taint_scan_config.mode ->
   ?timeout:float option ->
   ?timeout_threshold:int option ->
+  ?on_timing:(Taint_timing.file_timing -> unit) ->
   Fpath.t -> analyzer_rules -> Taint_scan_config.parsed_file
