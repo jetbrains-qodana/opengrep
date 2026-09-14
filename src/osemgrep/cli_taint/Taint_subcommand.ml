@@ -66,6 +66,18 @@ let load_rules_from_path (rules_path : Fpath.t) : Rule.t list =
           m "Failed to parse rules: %s" (Rule_error.string_of_error err));
         []
 
+let ensure_bench_path_writable (bench_path_s : string) : unit =
+  try
+    Stdlib.open_out_gen [ Open_wronly; Open_creat ] 0o666 bench_path_s
+    |> close_out
+  with
+  | Sys_error msg ->
+      (* Not [Error.abort]: that reports through the default [Logs] source,
+       * which [Ir_pipeline_logs.init_taint_subcommand_logging] has muted. *)
+      Logs.err ~src:Ir_pipeline_logs.src (fun m ->
+        m "Cannot write the --bench report to %s: %s" bench_path_s msg);
+      Error.exit_code_exn (Exit_code.fatal ~__LOC__)
+
 let read_lines_from_file (path : string) : string list =
   let ic = Stdlib.open_in path in
   let lines = ref [] in
@@ -105,6 +117,8 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
    * default reporter from [CLI.main] so other sources' [Logs] traffic does
    * not flood stderr. *)
   Ir_pipeline_logs.init_taint_subcommand_logging ~level:conf.logging_level ();
+
+  conf.bench |> Option.iter ensure_bench_path_writable;
 
   Parsing_init.init ();
 
