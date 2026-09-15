@@ -122,6 +122,11 @@ let run_conf (caps : < caps ; .. >) (conf : Taint_CLI.conf) : Exit_code.t =
 
   Parsing_init.init ();
 
+  (match conf.scip_index with
+  | [] -> ()
+  | paths ->
+      Scip_resolver.install (Scip_index.load (List.map Fpath.v paths)));
+
   let rules = load_rules conf in
   let files = read_file_list_from_stdin () in
 

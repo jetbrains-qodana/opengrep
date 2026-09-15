@@ -14,6 +14,7 @@
     semgrep_core
     semgrep_core_cli
     semgrep_targeting
+    semgrep.scip
 
     osemgrep_networking
     osemgrep_core

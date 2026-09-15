@@ -659,6 +659,11 @@ let run_scan_conf (caps : < caps ; .. >) (conf : Scan_CLI.conf) : Exit_code.t =
 
   Core_profiling.profiling := conf.core_runner_conf.time_flag;
 
+  (match conf.scip_index with
+  | [] -> ()
+  | paths ->
+      Scip_resolver.install (Scip_index.load (List.map Fpath.v paths)));
+
   (* Print feature section for enabled products if pattern mode is not used.
      Ideally, pattern mode should be a different subcommand, but for now we will
      conditionally print the feature section.

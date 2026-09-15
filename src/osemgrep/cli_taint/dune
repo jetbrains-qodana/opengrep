@@ -13,6 +13,7 @@
     parallelism
 
     semgrep.rml
+    semgrep.scip
   )
  (preprocess
    (pps

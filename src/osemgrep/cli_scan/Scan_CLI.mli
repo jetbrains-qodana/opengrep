@@ -47,6 +47,10 @@ type conf = {
   ls : bool;
   (* --x-ls-long: *)
   ls_format : Ls_subcommand.format;
+  (* Zero or more SCIP (`index.scip`) protobuf indexes used to resolve
+   * metavariable-type against types defined outside the scanned file. See
+   * docs/superpowers/specs/2026-09-15-scip-metavariable-type-design.md. *)
+  scip_index : string list;
 }
 [@@deriving show]
 

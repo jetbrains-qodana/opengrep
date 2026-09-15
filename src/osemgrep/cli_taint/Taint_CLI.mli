@@ -14,6 +14,10 @@ type conf = {
   logging_level : Logs.level option;
   (* Benchmark mode: path of the per-rule timing report to write. *)
   bench : string option;
+  (* Zero or more SCIP (`index.scip`) protobuf indexes used to resolve
+   * metavariable-type against types defined outside the scanned file. See
+   * docs/superpowers/specs/2026-09-15-scip-metavariable-type-design.md. *)
+  scip_index : string list;
 }
 
 (* entry point *)

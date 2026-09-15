@@ -66,6 +66,10 @@ type conf = {
   allow_local_builds : bool;
   ls : bool;
   ls_format : Ls_subcommand.format;
+  (* Zero or more SCIP (`index.scip`) protobuf indexes used to resolve
+   * metavariable-type against types defined outside the scanned file. See
+   * docs/superpowers/specs/2026-09-15-scip-metavariable-type-design.md. *)
+  scip_index : string list;
 }
 [@@deriving show]
 
@@ -114,6 +118,7 @@ let default : conf =
     allow_local_builds = false;
     ls = false;
     ls_format = Ls_subcommand.default_format;
+    scip_index = [];
   }
 
 (*************************************************************************)
@@ -279,6 +284,17 @@ This setting doesn't apply to target files discovered by scanning folders.
 Defaults to %b.
 |}
          default)
+
+let o_scip_index : string list Term.t =
+  let info =
+    Arg.info [ "scip-index" ] ~docv:"PATH"
+      ~doc:
+        "Path to a SCIP ($(b,index.scip)) protobuf index, used to resolve \
+         $(b,metavariable-type) against types defined outside the scanned \
+         file. Repeatable to supply indexes for several projects/languages. \
+         If omitted, type resolution is unchanged."
+  in
+  Arg.value (Arg.opt_all Arg.string [] info)
 
 (* alt: could be put in the Display options with nosem *)
 let o_baseline_commit : string option Term.t =
@@ -1397,7 +1413,7 @@ let cmdline_term caps ~allow_empty_config : conf Term.t =
       num_jobs no_secrets_validation nosem opengrep_ignore_pattern optimizations oss
       output output_enclosing_context pattern pro project_root taint_intrafile
       pro_path_sensitive remote replacement rewrite_rule_ids sarif sarif_outputs
-      scan_unknown_extensions secrets semgrepignore_filename severity show_supported_languages
+      scan_unknown_extensions scip_index secrets semgrepignore_filename severity show_supported_languages
       strict target_roots test test_ignore_todo text text_outputs time_flag timeout
       _timeout_interfileTODO timeout_threshold (*  trace trace_endpoint *) use_git
       validate version version_check vim vim_outputs
@@ -1613,6 +1629,7 @@ let cmdline_term caps ~allow_empty_config : conf Term.t =
       allow_local_builds;
       ls;
       ls_format;
+      scip_index;
     }
   in
   (* Term defines 'const' but also the '$' operator *)
@@ -1638,7 +1655,7 @@ let cmdline_term caps ~allow_empty_config : conf Term.t =
     $ o_taint_intrafile
     $ o_pro_path_sensitive $ o_remote $ o_replacement
     $ o_rewrite_rule_ids $ o_sarif $ o_sarif_outputs $ o_scan_unknown_extensions
-    $ o_secrets $ o_semgrepignore_filename $ o_severity $ o_show_supported_languages $ o_strict
+    $ o_scip_index $ o_secrets $ o_semgrepignore_filename $ o_severity $ o_show_supported_languages $ o_strict
     $ o_target_roots $ o_test $ Test_CLI.o_test_ignore_todo $ o_text
     $ o_text_outputs $ o_time $ o_timeout $ o_timeout_interfile
     $ o_timeout_threshold $ (* o_trace $ o_trace_endpoint $ *) o_use_git $ o_validate

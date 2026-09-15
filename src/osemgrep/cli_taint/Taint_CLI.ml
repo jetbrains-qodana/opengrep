@@ -22,6 +22,7 @@ type conf = {
   timeout_threshold : int option;
   logging_level : Logs.level option;
   bench : string option;
+  scip_index : string list;
 }
 
 (*****************************************************************************)
@@ -150,12 +151,23 @@ let o_debug : bool Term.t =
   in
   Arg.value (Arg.flag info)
 
+let o_scip_index : string list Term.t =
+  let info =
+    Arg.info [ "scip-index" ] ~docv:"PATH"
+      ~doc:
+        "Path to a SCIP ($(b,index.scip)) protobuf index, used to resolve \
+         $(b,metavariable-type) against types defined outside the scanned \
+         file. Repeatable to supply indexes for several projects/languages. \
+         If omitted, type resolution is unchanged."
+  in
+  Arg.value (Arg.opt_all Arg.string [] info)
+
 (*************************************************************************)
 (* Command-line parsing: turn argv into conf *)
 (*************************************************************************)
 let cmdline_term : conf Term.t =
   let combine format jobs rules_file rules_path with_diagnostics timeout
-      timeout_threshold debug verbose bench =
+      timeout_threshold debug verbose bench scip_index =
     let logging_level =
       match (verbose, debug) with
       | _, true -> (* --debug *) Some Logs.Debug
@@ -172,12 +184,13 @@ let cmdline_term : conf Term.t =
       timeout_threshold;
       logging_level;
       bench;
+      scip_index;
     }
   in
   Term.(
     const combine $ o_format $ o_jobs $ o_rules_file $ o_rules
     $ o_with_diagnostics $ o_timeout $ o_timeout_threshold $ o_debug $ o_verbose
-    $ o_bench)
+    $ o_bench $ o_scip_index)
 
 let parse_argv (argv : string array) : conf =
   let cmd : conf Cmd.t = Cmd.v cmdline_info cmdline_term in
