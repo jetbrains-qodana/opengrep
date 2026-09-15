@@ -530,6 +530,9 @@ For more information see https://opengrep.dev.
                          ; not exposed in the public interface.
     domainslib
     kcas_data ; lock-free data structures, also makes life easier for refactoring.
+    ; SCIP index decoding (protobuf3 wire format)
+    (ocaml-protoc :build)
+    pbrt
   )
 )
 

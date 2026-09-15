@@ -150,6 +150,7 @@ else
             "-lmtime_clock_stubs"
             "-lmemory_release_stubs"
             "-lmurmur3_stubs"
+            "-lpbrt_stubs"
             "-lpcre_stubs"
             "-lpcre2_stubs"
             "-lptime_clock_stubs"

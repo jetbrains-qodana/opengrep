@@ -80,6 +80,8 @@ depends: [
   "thread-local-storage"
   "domainslib"
   "kcas_data"
+  "ocaml-protoc" {build}
+  "pbrt"
   "odoc" {with-doc}
 ]
 build: [
