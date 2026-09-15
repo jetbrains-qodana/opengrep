@@ -139,6 +139,7 @@ let tests (caps : Cap.all_caps) =
       Unit_typing_generic.tests Parse_target.parse_program (fun lang file ->
           Parse_pattern.parse_pattern lang file);
       Unit_naming_generic.tests Parse_target.parse_program;
+      Unit_scip.tests;
       (* just expression vs expression testing for one language (Python) *)
       Unit_matcher.tests ~any_gen_of_string;
       (* TODO Unit_matcher.spatch_unittest ~xxx *)

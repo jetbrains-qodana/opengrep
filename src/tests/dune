@@ -28,6 +28,7 @@
     semgrep.engine
     semgrep.rml.tests ; Unit_taint_timing
     semgrep_tainting
+    semgrep.scip ; Unit_scip
     parser_python.menhir parser_python.ast_generic
     semgrep.data
 
