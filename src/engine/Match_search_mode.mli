@@ -13,6 +13,13 @@ val hook_pro_metavariable_name :
   (AST_generic.expr -> Rule.metavar_cond_name -> bool) option ref
 (** Determine whether a expression is a name of the given kind. *)
 
+val hook_scip_metavariable_type_matches :
+  (Lang.t -> AST_generic.expr -> AST_generic.type_ list -> bool) option ref
+(** Set by Scip_resolver.install when --scip-index is given: decides whether
+    an expression matches any of a [metavariable-type]'s raw type:/types:
+    patterns, consulting a user-supplied SCIP index. All matching logic
+    lives in Scip_resolver; this hook is intentionally opaque. *)
+
 (* called from check_rule above and from Match_tainting_mode *)
 val matches_of_formula :
   Match_env.xconfig ->

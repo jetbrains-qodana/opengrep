@@ -688,6 +688,17 @@ let hook_pro_metavariable_name :
     (G.expr -> Rule.metavar_cond_name -> bool) option ref =
   ref None
 
+(* Set by Scip_resolver.install when --scip-index is given. Decides whether
+ * the expression matches any of the raw type:/types: patterns [ts],
+ * consulting a user-supplied SCIP index. Used below as a fallback in
+ * CondType when the primary Type.t-based comparison isn't conclusive. All
+ * of the actual matching logic (raw signature vs. display_name, etc.) lives
+ * in Scip_resolver, not here - this hook is intentionally opaque, same as
+ * hook_pro_metavariable_name above. *)
+let hook_scip_metavariable_type_matches :
+    (Lang.t -> G.expr -> G.type_ list -> bool) option ref =
+  ref None
+
 let hook_call_of_metavariable_name
     ({ mvar; kind; modules; fqns } : Rule.metavar_cond_name) :
     Rule.taint_stmt_hook_call =
@@ -777,7 +788,19 @@ let rec filter_ranges (env : env) (xs : (RM.t * MV.bindings list) list)
                   * don't want to use that in other parts of the rules, so it's
                   * probably fine to just check whether the match is empty or
                   * not *)
-                 matches <> [] |> map_bool r
+                 let matched = matches <> [] in
+                 (* Fallback: the primary Type.t-based comparison above didn't
+                    conclude anything, but a user-supplied SCIP index still
+                    covers this expression's position (see design doc,
+                    CondType fallback). *)
+                 let matched =
+                   matched
+                   ||
+                   match !hook_scip_metavariable_type_matches with
+                   | None -> false
+                   | Some scip_matches -> scip_matches lang e ts
+                 in
+                 matched |> map_bool r
              | None ->
                  error env
                    (spf "couldn't find metavar %s in the match results." mvar);
