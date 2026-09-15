@@ -273,6 +273,51 @@ let full_converters_str (s : string) : bytepos_linecol_converters =
 [@@profiling]
 
 (*****************************************************************************)
+(* UTF-16 column conversion *)
+(*****************************************************************************)
+
+(* Extract the (0-based) [line0]-th line of [content], without its
+ * terminating '\n'. Returns "" if [content] has fewer lines. *)
+let line_of_content (content : string) (line0 : int) : string =
+  let len = String.length content in
+  let rec find_start pos remaining =
+    if remaining <= 0 then Some pos
+    else
+      match String.index_from_opt content pos '\n' with
+      | Some nl -> find_start (nl + 1) (remaining - 1)
+      | None -> None
+  in
+  match find_start 0 line0 with
+  | None -> ""
+  | Some start ->
+      let end_ =
+        match String.index_from_opt content start '\n' with
+        | Some nl -> nl
+        | None -> len
+      in
+      String.sub content start (end_ - start)
+
+(* SCIP (like LSP) addresses character offsets within a line in UTF-16 code
+ * units, whereas [Pos.column] in this codebase is a raw byte offset. This
+ * converts a byte column to the corresponding UTF-16 code unit offset, so
+ * that positions coming from OpenGrep's AST can be looked up in a SCIP
+ * index. For ASCII-only content (the common case, and every byte offset in
+ * the existing test suite) this is the identity function. *)
+let byte_col_to_utf16 ~(content : string) ~(line0 : int) ~(byte_col0 : int) :
+    int =
+  let line = line_of_content content line0 in
+  let byte_col0 = max 0 (min byte_col0 (String.length line)) in
+  let prefix = String.sub line 0 byte_col0 in
+  let utf16_units = ref 0 in
+  let count_units () _bytepos = function
+    | `Malformed _ -> incr utf16_units
+    | `Uchar u ->
+        utf16_units := !utf16_units + if Uchar.to_int u >= 0x10000 then 2 else 1
+  in
+  Uutf.String.fold_utf_8 count_units () prefix;
+  !utf16_units
+
+(*****************************************************************************)
 (* unit tests *)
 (*****************************************************************************)
 
@@ -290,3 +335,19 @@ let%test _ = equate_positions 1 (1, 1)
 let%test _ = equate_positions 2 (2, 0)
 let%test _ = equate_positions 3 (2, 1)
 let%test _ = equate_positions 4 (2, 2)
+
+(* ASCII content: byte offset and UTF-16 offset coincide. *)
+let%test _ =
+  byte_col_to_utf16 ~content:"hello\nworld" ~line0:0 ~byte_col0:5 =*= 5
+
+let%test _ =
+  byte_col_to_utf16 ~content:"hello\nworld" ~line0:1 ~byte_col0:3 =*= 3
+
+(* "café" : 'é' is a 2-byte UTF-8 sequence but a single UTF-16 code unit, so
+ * a byte offset past it overcounts by one relative to UTF-16. *)
+let%test _ = byte_col_to_utf16 ~content:"caf\xc3\xa9x" ~line0:0 ~byte_col0:6 =*= 5
+
+(* U+1F600 (grinning face) is a 4-byte UTF-8 sequence encoded as a UTF-16
+ * surrogate pair (2 code units), so 4 bytes collapse to 2 UTF-16 units. *)
+let%test _ =
+  byte_col_to_utf16 ~content:"\xf0\x9f\x98\x80x" ~line0:0 ~byte_col0:4 =*= 2

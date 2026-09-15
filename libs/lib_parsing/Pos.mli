@@ -67,3 +67,13 @@ val full_converters_str : string -> bytepos_linecol_converters
  * during lexing because of limitations of ocamllex and Lexing.position.
  *)
 val complete_position : Fpath.t -> bytepos_linecol_converters -> t -> t
+
+(*****************************************************************************)
+(* UTF-16 column conversion *)
+(*****************************************************************************)
+
+(* Convert a 0-based byte column within line [line0] of [content] to the
+ * corresponding 0-based UTF-16 code unit offset, as used by SCIP/LSP.
+ * Identity on ASCII-only lines. *)
+val byte_col_to_utf16 :
+  content:string -> line0:int -> byte_col0:int -> int
