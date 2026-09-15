@@ -66,7 +66,7 @@ jobs:
       - name: Set GHA cache for OPAM
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache@v4
         with:
-          key: ${{ runner.os }}-${{ runner.arch }}-v1-opam-${{ matrix.ocaml_version }}-${{ hashFiles('opam/*.opam') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-v1-opam-${{ matrix.ocaml_version }}-${{ hashFiles('opam/*.opam*') }}
           path: _opam
 
       - name: Create switch
