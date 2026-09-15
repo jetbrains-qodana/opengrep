@@ -106,6 +106,82 @@ def foo(a, b):
     return a + b == a + b
 |}
 
+(* coupling: same rule shape for both the --scip-index golden test and its
+ * baseline (see below); the type Foo is only known through the SCIP index,
+ * never from the TS source itself. *)
+let scip_metavar_type_yaml_content =
+  {|
+rules:
+  - id: match-scip-metavar-type
+    patterns:
+      - pattern: $X.bar()
+      - metavariable-type:
+          metavariable: $X
+          type: Foo
+    message: "found a call to bar() on something of type Foo"
+    languages: [typescript]
+    severity: WARNING
+|}
+
+let scip_metavar_type_ts_content =
+  {|
+function f() {
+  let x = get();
+  x.bar();
+}
+|}
+
+(* Deliberately a different relative path/variable than the fixture above:
+ * this must fail to match on its own (no --scip-index passed, no fixture in
+ * the repo), and using distinct content avoids any risk of this test being
+ * accidentally satisfied by state a *different* test in this same process
+ * happened to leave behind (Scip_resolver.install sets a process-global
+ * hook that is intentionally never uninstalled, matching real single-shot
+ * CLI invocations - see the design doc's CLI section). *)
+let baseline_metavar_type_ts_content =
+  {|
+function f() {
+  let y = get();
+  y.bar();
+}
+|}
+
+(* A minimal synthetic SCIP index recording that `x` in index.ts (see
+ * scip_metavar_type_ts_content above, line 3 (0-based), column 2) has type
+ * `Foo` - built the same way a real indexer (e.g. scip-typescript) would
+ * emit it, via the ocaml-protoc-generated Scip.make_* smart constructors. *)
+let scip_index_bytes () : string =
+  let foo_symbol = "scip-typescript npm . . `foo.d.ts`/Foo#" in
+  let x_symbol = "scip-typescript npm . . `index.ts`/x." in
+  let foo_symbol_info =
+    Scip.make_symbol_information ~symbol:foo_symbol ~display_name:"Foo" ()
+  in
+  let x_symbol_info =
+    Scip.make_symbol_information ~symbol:x_symbol ~display_name:"x"
+      ~signature_documentation:
+        (Scip.make_signature ~language:"typescript" ~text:"let x: Foo" ())
+      ()
+  in
+  let occ =
+    Scip.make_occurrence ~symbol:x_symbol
+      ~typed_range:
+        (Scip.Single_line_range
+           (Scip.make_single_line_range ~line:3l ~start_character:2l
+              ~end_character:3l ()))
+      ()
+  in
+  let doc =
+    Scip.make_document ~relative_path:"index.ts" ~language:"typescript"
+      ~occurrences:[ occ ] ~symbols:[ x_symbol_info ]
+      ~position_encoding:Scip.Utf16_code_unit_offset_from_line_start ()
+  in
+  let index =
+    Scip.make_index ~documents:[ doc ] ~external_symbols:[ foo_symbol_info ] ()
+  in
+  let encoder = Pbrt.Encoder.create () in
+  Scip.encode_pb_index index encoder;
+  Pbrt.Encoder.to_string encoder
+
 let dummy_app_token = "FAKETESTINGAUTHTOKEN"
 
 (* coupling: subset of cli/tests/conftest.py ALWAYS_MASK *)
@@ -305,6 +381,45 @@ let test_basic_verbose_output (caps : Scan_subcommand.caps) () =
           in
           Exit_code.Check.ok exit_code))
 
+let test_scip_metavariable_type_with_index (caps : Scan_subcommand.caps) () =
+  with_env_app_token (fun () ->
+      let repo_files =
+        [
+          F.File ("rules.yml", scip_metavar_type_yaml_content);
+          F.File ("index.ts", scip_metavar_type_ts_content);
+          F.File ("index.scip", scip_index_bytes ());
+        ]
+      in
+      Testutil_git.with_git_repo ~verbose:true repo_files (fun _cwd ->
+          let exit_code =
+            without_settings (fun () ->
+                Scan_subcommand.main caps
+                  [|
+                    "opengrep-scan"; "--experimental"; "--config"; "rules.yml";
+                    "--scip-index"; "index.scip"; "--json";
+                  |])
+          in
+          Exit_code.Check.ok exit_code))
+
+let test_scip_metavariable_type_baseline (caps : Scan_subcommand.caps) () =
+  with_env_app_token (fun () ->
+      let repo_files =
+        [
+          F.File ("rules.yml", scip_metavar_type_yaml_content);
+          F.File ("baseline.ts", baseline_metavar_type_ts_content);
+        ]
+      in
+      Testutil_git.with_git_repo ~verbose:true repo_files (fun _cwd ->
+          let exit_code =
+            without_settings (fun () ->
+                Scan_subcommand.main caps
+                  [|
+                    "opengrep-scan"; "--experimental"; "--config"; "rules.yml";
+                    "--json";
+                  |])
+          in
+          Exit_code.Check.ok exit_code))
+
 (*****************************************************************************)
 (* Entry point *)
 (*****************************************************************************)
@@ -338,4 +453,10 @@ let tests (caps : < Scan_subcommand.caps >) =
         (test_basic_output_max_match caps);
       t "basic output with max-match-per-file rule option" ~checked_output:(Testo.stdxxx ()) ~normalize
         (test_basic_output_max_match_in_rule caps);
+      t "metavariable-type on an externally-defined type: no match without --scip-index"
+        ~checked_output:(Testo.stdxxx ()) ~normalize
+        (test_scip_metavariable_type_baseline caps);
+      t "metavariable-type on an externally-defined type: matches with --scip-index"
+        ~checked_output:(Testo.stdxxx ()) ~normalize
+        (test_scip_metavariable_type_with_index caps);
     ]

@@ -1,0 +1,43 @@
+--- begin input files ---
+index.scip
+index.ts
+rules.yml
+--- end input files ---
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'init' '-b' 'main'
+Initialized empty Git repository in <TMP>/<MASKED>/.git/
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'config' 'user.name' 'Tester'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'config' 'user.email' 'tester@example.com'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'add' '.'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'commit' '-m' 'Add files'
+[main (root-commit) <MASKED>] Add files
+ 3 files changed, 16 insertions(+)
+ create mode 100644 index.scip
+ create mode 100644 index.ts
+ create mode 100644 rules.yml
+
+┌──────────────┐
+│ Opengrep CLI │
+└──────────────┘
+
+[32m✔[39m [1mOpengrep OSS[0m
+  [32m✔[39m Basic security coverage for first-party code vulnerabilities.
+
+[1m  Loading rules from local config...[0m
+
+
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 3 files tracked by git with 1 Code rule:
+  Scanning 3 files.
+{"version":"<MASKED>","results":[{"check_id":"match-scip-metavar-type","path":"index.ts","start":{"line":4,"col":3,"offset":35},"end":{"line":4,"col":10,"offset":42},"extra":{"metavars":{"$X":{"start":{"line":4,"col":3,"offset":35},"end":{"line":4,"col":4,"offset":36},"abstract_content":"x","propagated_value":{"svalue_start":{"line":3,"col":11,"offset":26},"svalue_end":{"line":3,"col":16,"offset":31},"svalue_abstract_content":"get()"}}},"message":"found a call to bar() on something of type Foo","metadata":{},"severity":"WARNING","fingerprint":"76a4ffaee821c0f61a896da3cc3845535b823999170856787c97533cef8426bf8b5b24ca698437cf1e99dc918243ed657ee842a396d7c3e9d312b81336287fd9_0","lines":"  x.bar();","is_ignored":false,"validation_state":"NO_VALIDATOR","engine_kind":"OSS"}}],"errors":[],"paths":{"scanned":["index.ts"]},"interfile_languages_used":[],"skipped_rules":[]}
+
+
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+Some files were skipped or only partially analyzed.
+  Scan was limited to files tracked by git.
+
+Ran 1 rule on 1 file: 1 finding.
+ASSERT exit code
