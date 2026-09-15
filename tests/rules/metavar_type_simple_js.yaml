@@ -1,0 +1,11 @@
+rules:
+  - id: match-simple-metavar-type-js
+    patterns:
+      - pattern: $RES.send(...)
+      - metavariable-type:
+          metavariable: $RES
+          type: Response
+    message: Semgrep found a match
+    languages:
+      - javascript
+    severity: WARNING

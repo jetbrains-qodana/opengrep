@@ -23,7 +23,11 @@ let wrap_type_expr lang str =
   | Lang.Scala -> Some (spf "x.asInstanceOf[%s]" str)
   (* for php, casting expression only allows primitive types so we use func def instead. *)
   | Lang.Php -> Some (spf "function foo(%s $x) {}" str)
-  | Lang.Ts -> Some (spf "x as %s" str)
+  (* JS patterns are parsed with the TS tree-sitter grammar (see
+   * Parse_pattern2.ml), so the TS cast syntax parses fine here too. *)
+  | Lang.Ts
+  | Lang.Js ->
+      Some (spf "x as %s" str)
   | Lang.Csharp -> Some (spf "x as %s" str)
   | Lang.Rust -> Some (spf "x as %s" str)
   | Lang.Move_on_sui -> Some (spf "(x : %s)" str)
@@ -53,7 +57,7 @@ let unwrap_type_expr lang expr =
           _;
         } ) ->
       Some t
-  | Lang.Ts, G.E { e = G.Cast (t, _, _); _ } -> Some t
+  | (Lang.Ts | Lang.Js), G.E { e = G.Cast (t, _, _); _ } -> Some t
   | Lang.Csharp, G.E { e = G.Cast (t, _, _); _ } -> Some t
   | Lang.Rust, G.E { e = G.Cast (t, _, _); _ } -> Some t
   | Lang.Move_on_sui, G.E { e = G.Cast (t, _, _); _ } -> Some t
