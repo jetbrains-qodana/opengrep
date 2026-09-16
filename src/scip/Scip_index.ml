@@ -15,6 +15,15 @@ type t = {
    * caller start from a [type_symbol] found at some position and walk its
    * [relationships] to other (global/external) symbols. *)
   by_symbol : (string, symbol_info) Hashtbl.t;
+  (* display name -> symbol string, for the same global/external symbols as
+   * [by_symbol] (multiple symbols can share a name, e.g. overloads or
+   * same-named types in different namespaces - see [find_by_display_name]).
+   * This is what lets a caller start from a bare type NAME parsed out of
+   * raw hover text (no symbol string available) and still walk
+   * relationships, as long as that name resolves to a type defined *within*
+   * the indexed project (see symbol_info_of_scip's [raw_signature] comment
+   * for why display_name itself is frequently empty). *)
+  by_display_name : (string, string) Hashtbl.t;
 }
 
 (* Per the SCIP grammar (scip.proto, around "<symbol> ::= ... | 'local '
@@ -24,13 +33,34 @@ type t = {
  * resolved against a per-document table, never the global one. *)
 let is_local_symbol (sym : string) : bool = String.starts_with ~prefix:"local " sym
 
+(* Some indexers (e.g. scip-dotnet as of 0.2.14) never populate
+ * [signature_documentation], and instead render the hover/signature text as
+ * a markdown code block inside the deprecated [documentation] field -
+ * scip.proto's own comment on that field calls this out explicitly: "Due to
+ * historical reasons, indexers may include signature documentation in this
+ * field by rendering markdown code blocks." Strip the fence (```<lang> ...
+ * ```) to recover the bare signature text underneath, e.g.
+ * "```cs\nSQLiteDataAdapter da\n```" -> "SQLiteDataAdapter da". Returns [s]
+ * unchanged if it isn't fenced. *)
+let strip_markdown_code_fence (s : string) : string =
+  match String.split_on_char '\n' (String.trim s) with
+  | first :: (_ :: _ as rest) when String.starts_with ~prefix:"```" first -> (
+      match List.rev rest with
+      | last :: body_rev when String.trim last = "```" ->
+          String.concat "\n" (List.rev body_rev)
+      | _ -> String.concat "\n" rest)
+  | _ -> s
+
 let symbol_info_of_scip (si : Scip.symbol_information) : symbol_info =
   let raw_signature =
     match si.signature_documentation with
-    | Some { Scip.text = ""; _ }
-    | None ->
-        None
-    | Some { Scip.text; _ } -> Some text
+    | Some { Scip.text; _ } when text <> "" -> Some text
+    | _ -> (
+        si.documentation
+        |> List.find_map (fun doc ->
+               match strip_markdown_code_fence doc with
+               | "" -> None
+               | s -> Some s))
   in
   (* Best-effort: the first symbol referenced inside the hover signature is
    * heuristically the type being hovered over (e.g. "SQLiteDataAdapter" in
@@ -85,6 +115,60 @@ let register_symbol table (si : Scip.symbol_information) : unit =
   if si.symbol <> "" && not (is_local_symbol si.symbol) then
     Hashtbl.replace table si.symbol (symbol_info_of_scip si)
 
+(* Per scip.proto's grammar for a global <symbol>: "<scheme> ' ' <package>
+ * ' ' <descriptor>+", where <package> is itself "<manager> ' '
+ * <package-name> ' ' <version>" - i.e. exactly 4 space-separated fields
+ * before the descriptor path (e.g. "scip-dotnet nuget . . DB/Foo#" or
+ * "scip-dotnet nuget System.Data 2.0.0.0 Common/DbDataAdapter#Fill()."). The
+ * descriptor path itself has no unescaped spaces in practice, so it's
+ * exactly everything after those first 4 fields. This lets us derive a
+ * symbol's own simple name straight from its symbol string when the indexer
+ * doesn't populate [display_name] (see symbol_info_of_scip) - this is
+ * spec-mandated, not a scip-dotnet-specific hack: "the symbol
+ * `com/example/MyClass#myMethod(+1).` should have the display name
+ * `myMethod`". *)
+let simple_name_of_symbol (sym : string) : string option =
+  match String.split_on_char ' ' sym with
+  | _scheme :: _manager :: _pkg_name :: _pkg_version :: (_ :: _ as rest) -> (
+      let s = String.concat " " rest in
+      (* Strip a trailing term/method terminator ('.'), then a method's
+       * "(...)" disambiguator if present, then a trailing type terminator
+       * ('#'). What's left ends exactly at the descriptor's own name. *)
+      let strip_trailing_char c s =
+        let len = String.length s in
+        if len > 0 && s.[len - 1] = c then String.sub s 0 (len - 1) else s
+      in
+      let s = strip_trailing_char '.' s in
+      let s =
+        let len = String.length s in
+        if len > 0 && s.[len - 1] = ')' then
+          match String.rindex_opt s '(' with
+          | Some i -> String.sub s 0 i
+          | None -> s
+        else s
+      in
+      let s = strip_trailing_char '#' s in
+      let last_descriptor_sep =
+        [ '/'; '#'; '.' ]
+        |> List.filter_map (String.rindex_opt s)
+        |> function
+        | [] -> None
+        | firsts -> Some (List.fold_left max (List.hd firsts) firsts)
+      in
+      match last_descriptor_sep with
+      | Some i ->
+          let name = String.sub s (i + 1) (String.length s - i - 1) in
+          if name = "" then None else Some name
+      | None -> if s = "" then None else Some s)
+  | _ -> None
+
+(* Prefer the indexer-declared [display_name] when present; otherwise derive
+ * it from the symbol string itself (see simple_name_of_symbol). *)
+let display_name_of_symbol (symbol : string) (info : symbol_info) :
+    string option =
+  if info.display_name <> "" then Some info.display_name
+  else simple_name_of_symbol symbol
+
 let index_document positions global_table (doc : Scip.document) : unit =
   if has_supported_encoding doc then (
     let local_table : (string, symbol_info) Hashtbl.t = Hashtbl.create 16 in
@@ -127,7 +211,12 @@ let load (paths : Fpath.t list) : t =
   indices
   |> List.iter (fun (idx : Scip.index) ->
          idx.documents |> List.iter (index_document positions global_table));
-  { positions; by_symbol = global_table }
+  let by_display_name : (string, string) Hashtbl.t = Hashtbl.create 4096 in
+  global_table
+  |> Hashtbl.iter (fun symbol info ->
+         display_name_of_symbol symbol info
+         |> Option.iter (fun name -> Hashtbl.add by_display_name name symbol));
+  { positions; by_symbol = global_table; by_display_name }
 
 let lookup (t : t) ~(rel_path : string) ~(line0 : int) ~(char0_utf16 : int) :
     symbol_info option =
@@ -135,3 +224,18 @@ let lookup (t : t) ~(rel_path : string) ~(line0 : int) ~(char0_utf16 : int) :
 
 let find (t : t) (symbol : string) : symbol_info option =
   Hashtbl.find_opt t.by_symbol symbol
+
+let find_by_display_name (t : t) (name : string) : string list =
+  Hashtbl.find_all t.by_display_name name
+
+let effective_display_name (t : t) (symbol : string) : string option =
+  match find t symbol with
+  | Some info when info.display_name <> "" -> Some info.display_name
+  | Some _ | None ->
+      (* Either [symbol] has no SymbolInformation of its own at all (e.g. a
+       * relationship target that was only ever mentioned, never separately
+       * registered), or it has one but with an empty display_name (see
+       * symbol_info_of_scip). Either way, [simple_name_of_symbol] needs no
+       * table lookup - it's a pure parse of the symbol string itself, valid
+       * for any well-formed global <symbol>. *)
+      simple_name_of_symbol symbol

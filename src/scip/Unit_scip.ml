@@ -43,8 +43,8 @@ let relationship ~symbol ~is_implementation () : Scip.relationship =
   Scip.make_relationship ~symbol ~is_implementation ()
 
 let symbol_info ~symbol ~display_name ?signature_text
-    ?(signature_occurrences = []) ?(relationships = []) () :
-    Scip.symbol_information =
+    ?(signature_occurrences = []) ?(relationships = []) ?(documentation = [])
+    () : Scip.symbol_information =
   let signature_documentation =
     Option.map
       (fun text ->
@@ -53,7 +53,7 @@ let symbol_info ~symbol ~display_name ?signature_text
       signature_text
   in
   Scip.make_symbol_information ~symbol ~display_name ~relationships
-    ?signature_documentation ()
+    ~documentation ?signature_documentation ()
 
 let document ?(position_encoding = Scip.Utf16_code_unit_offset_from_line_start)
     ~relative_path ~occurrences ~symbols () : Scip.document =
@@ -388,4 +388,117 @@ let tests =
             match Scip_index.find table "unknown symbol" with
             | None -> ()
             | Some _ -> Alcotest.fail "expected None for an unknown symbol"));
+    t "raw_signature falls back to the deprecated documentation field, \
+        stripping a markdown code fence" (fun () ->
+        (* Mirrors scip-dotnet (as of 0.2.14): it never populates
+           signature_documentation, and instead renders the hover text as a
+           markdown code block inside the deprecated `documentation` field
+           (see scip.proto's own comment on SymbolInformation.documentation). *)
+        let da_symbol = "local 0" in
+        let idx =
+          index
+            [
+              document ~relative_path:"a.cs"
+                ~occurrences:
+                  [
+                    occurrence ~symbol:da_symbol ~line:0 ~start_character:0
+                      ~end_character:2 ();
+                  ]
+                ~symbols:
+                  [
+                    symbol_info ~symbol:da_symbol ~display_name:"da"
+                      ~documentation:[ "```cs\nSQLiteDataAdapter da\n```" ] ();
+                  ]
+                ();
+            ]
+        in
+        with_table [ idx ] (fun table ->
+            check_lookup
+              ~msg:"raw_signature comes from the fenced documentation entry"
+              table ~rel_path:"a.cs" ~line0:0 ~char0_utf16:0
+              (Some
+                 {
+                   Scip_index.display_name = "da";
+                   raw_signature = Some "SQLiteDataAdapter da";
+                   type_symbol = None;
+                   relationships = [];
+                 })));
+    t "raw_signature prefers signature_documentation over documentation when \
+        both are present" (fun () ->
+        let x_symbol = "local 0" in
+        let idx =
+          index
+            [
+              document ~relative_path:"a.ts"
+                ~occurrences:
+                  [
+                    occurrence ~symbol:x_symbol ~line:0 ~start_character:0
+                      ~end_character:1 ();
+                  ]
+                ~symbols:
+                  [
+                    symbol_info ~symbol:x_symbol ~display_name:"x"
+                      ~signature_text:"let x: Foo"
+                      ~documentation:[ "```ts\nshould be ignored\n```" ] ();
+                  ]
+                ();
+            ]
+        in
+        with_table [ idx ] (fun table ->
+            match
+              Scip_index.lookup table ~rel_path:"a.ts" ~line0:0 ~char0_utf16:0
+            with
+            | Some { Scip_index.raw_signature = Some "let x: Foo"; _ } -> ()
+            | got ->
+                Alcotest.failf
+                  "expected raw_signature = Some \"let x: Foo\", got %s"
+                  (show_result got)));
+    t "find_by_display_name and effective_display_name derive a name from \
+        the symbol string when display_name is unset" (fun () ->
+        (* Mirrors scip-dotnet: it never populates
+           symbol_information.display_name at all, for any symbol kind. *)
+        let provider_symbol = "scip-dotnet nuget . . DB/SqliteDbProvider#" in
+        let idx =
+          index
+            ~external_symbols:
+              [ symbol_info ~symbol:provider_symbol ~display_name:"" () ]
+            [ document ~relative_path:"a.cs" ~occurrences:[] ~symbols:[] () ]
+        in
+        with_table [ idx ] (fun table ->
+            (match
+               Scip_index.find_by_display_name table "SqliteDbProvider"
+             with
+            | [ sym ] when sym = provider_symbol -> ()
+            | got ->
+                Alcotest.failf "expected [%S], got [%s]" provider_symbol
+                  (String.concat "; " got));
+            match
+              Scip_index.effective_display_name table provider_symbol
+            with
+            | Some "SqliteDbProvider" -> ()
+            | got ->
+                Alcotest.failf "expected Some \"SqliteDbProvider\", got %s"
+                  (match got with
+                  | None -> "None"
+                  | Some s -> Printf.sprintf "Some %S" s)));
+    t "effective_display_name derives a name even for a symbol with no \
+        SymbolInformation of its own" (fun () ->
+        (* Mirrors a relationship target that's only ever mentioned as the
+           `symbol` half of a Relationship, never separately registered -
+           supertype_matches must still be able to name-match it. *)
+        let idx =
+          index
+            [ document ~relative_path:"a.cs" ~occurrences:[] ~symbols:[] () ]
+        in
+        with_table [ idx ] (fun table ->
+            match
+              Scip_index.effective_display_name table
+                "scip-dotnet nuget . . `System.Data.Common`/DbDataAdapter#"
+            with
+            | Some "DbDataAdapter" -> ()
+            | got ->
+                Alcotest.failf "expected Some \"DbDataAdapter\", got %s"
+                  (match got with
+                  | None -> "None"
+                  | Some s -> Printf.sprintf "Some %S" s)));
   ]

@@ -49,3 +49,25 @@ val lookup :
  * in practice, since a type worth walking relationships on is always a
  * global or external symbol. *)
 val find : t -> string -> symbol_info option
+
+(* [find_by_display_name t name] looks up global/external symbols by their
+ * simple display name (e.g. "SqliteDbProvider"), returning every symbol
+ * string that resolves to (or derives) that name - see
+ * Scip_index.ml's simple_name_of_symbol for why this can't just be a plain
+ * field lookup: many indexers never populate [symbol_info.display_name], so
+ * the name is instead derived from the symbol string itself. Several
+ * symbols can share a name (overloads, same-named types in different
+ * namespaces), so callers should try all of them. Only resolves symbols that
+ * are themselves defined within the indexed project or its listed external
+ * dependencies with full SymbolInformation - a name that resolves to
+ * nothing here has no relationship data anywhere in the index (this is the
+ * common case for a type from an unindexed third-party library: see
+ * Scip_resolver.ml's metavariable_type_matches for why). *)
+val find_by_display_name : t -> string -> string list
+
+(* [effective_display_name t symbol] is [symbol]'s own display name: the
+ * indexer-declared [symbol_info.display_name] when non-empty, otherwise a
+ * name derived from the symbol string itself (many indexers, e.g.
+ * scip-dotnet as of 0.2.14, never populate display_name at all). None if
+ * [symbol] isn't registered in [t]. *)
+val effective_display_name : t -> string -> string option

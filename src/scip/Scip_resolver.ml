@@ -110,19 +110,6 @@ let last_top_level_colon (s : string) : int option =
     s;
   !last
 
-let type_expr_text_of_raw_signature (raw : string) : string option =
-  let raw = String.trim raw in
-  if raw = "" then None
-  else
-    let candidate =
-      match last_top_level_colon raw with
-      | Some i -> String.sub raw (i + 1) (String.length raw - i - 1)
-      | None -> strip_leading_keywords raw
-    in
-    match String.trim candidate with
-    | "" -> None
-    | candidate -> Some candidate
-
 (* Reads a dotted identifier starting at [start]; returns the identifier and
  * the index right after it, or None if [start] isn't the start of one. *)
 let parse_dotted_ident (s : string) (start : int) : (string * int) option =
@@ -156,6 +143,36 @@ let matching_angle_close (s : string) (open_idx : int) : int option =
     incr i
   done;
   !result
+
+(* [candidate] may still be followed by trailing text unrelated to the type
+ * itself - e.g. C# hovers have no ':' separator ("SQLiteDataAdapter da"), so
+ * [type_expr_text_of_raw_signature] below can only strip *leading*
+ * declaration keywords and is left with "SQLiteDataAdapter da" as a whole.
+ * Slice that down to just the leading dotted identifier plus an optional
+ * single level of <...> generic arguments, discarding anything after (the
+ * variable/property name). *)
+let head_type_text (s : string) : string option =
+  match parse_dotted_ident s 0 with
+  | None -> None
+  | Some (name, next) -> (
+      if next < String.length s && s.[next] = '<' then
+        match matching_angle_close s next with
+        | None -> Some name
+        | Some close -> Some (String.sub s 0 (close + 1))
+      else Some name)
+
+let type_expr_text_of_raw_signature (raw : string) : string option =
+  let raw = String.trim raw in
+  if raw = "" then None
+  else
+    let candidate =
+      match last_top_level_colon raw with
+      | Some i -> String.sub raw (i + 1) (String.length raw - i - 1)
+      | None -> strip_leading_keywords raw
+    in
+    match String.trim candidate with
+    | "" -> None
+    | candidate -> head_type_text candidate
 
 let split_top_level_commas (s : string) : string list =
   let depth = ref 0 in
@@ -269,17 +286,32 @@ let rec supertype_matches (index : Scip_index.t)
   if Hashtbl.mem visited symbol then false
   else begin
     Hashtbl.add visited symbol ();
+    (* Use the symbol's *effective* display name, not the raw
+     * [symbol_info.display_name] field directly: many indexers (e.g.
+     * scip-dotnet as of 0.2.14) never populate it, so comparing against it
+     * directly would always fail even for a real match - see
+     * Scip_index.effective_display_name. This works even for a symbol with
+     * no SymbolInformation of its own at all (e.g. a relationship target
+     * that's only ever mentioned, never separately registered), since it
+     * falls back to parsing the symbol string itself. *)
+    let matches_here =
+      match Scip_index.effective_display_name index symbol with
+      | None -> false
+      | Some display_name ->
+          List.exists
+            (fun raw -> raw_type_matches_scip_display_name raw display_name)
+            raw_names
+    in
+    matches_here
+    ||
     match Scip_index.find index symbol with
     | None -> false
-    | Some { display_name; relationships; _ } ->
+    | Some { relationships; _ } ->
         List.exists
-          (fun raw -> raw_type_matches_scip_display_name raw display_name)
-          raw_names
-        || List.exists
-             (fun (related_symbol, is_implementation) ->
-               is_implementation
-               && supertype_matches index visited raw_names related_symbol)
-             relationships
+          (fun (related_symbol, is_implementation) ->
+            is_implementation
+            && supertype_matches index visited raw_names related_symbol)
+          relationships
   end
 
 let metavariable_type_matches (index : Scip_index.t) (_lang : Lang.t)
@@ -295,17 +327,50 @@ let metavariable_type_matches (index : Scip_index.t) (_lang : Lang.t)
         | None -> (
             (* The indexer didn't emit a signature occurrence for the type
              * (see symbol_info_of_scip): fall back to the raw_signature
-             * text heuristic. No relationship data is reachable this way,
-             * so only an exact/suffix name match is possible here. *)
+             * text heuristic. *)
             match info.raw_signature with
             | None -> false
             | Some raw -> (
                 match type_expr_text_of_raw_signature raw with
                 | None -> false
                 | Some candidate ->
+                    (* [candidate] may still carry generic type arguments
+                     * (e.g. "ArrayList<String>" for a Java local variable) -
+                     * type_expr_text_of_raw_signature keeps those because
+                     * the *primary* Type.t-reconstruction path (see
+                     * type_of_symbol_info) needs them. The name-based
+                     * comparisons below don't: raw_head_name_of_type above
+                     * already strips type args from the rule's own parsed
+                     * type, so comparing against a generic-decorated
+                     * candidate would spuriously never match. *)
+                    let bare_name =
+                      match parse_dotted_ident candidate 0 with
+                      | Some (name, _) -> name
+                      | None -> candidate
+                    in
                     List.exists
-                      (fun r -> raw_type_matches_scip_display_name r candidate)
-                      raw_names)))
+                      (fun r -> raw_type_matches_scip_display_name r bare_name)
+                      raw_names
+                    ||
+                    (* [bare_name] is a bare type name (e.g. "SQLiteDataAdapter"
+                     * from a C# local-variable hover), not a symbol string, so
+                     * it can't be looked up via [Scip_index.find] directly.
+                     * Resolve it by display_name instead: if that name is
+                     * itself a class/interface defined *within* the indexed
+                     * project, its own SymbolInformation carries the
+                     * relationships needed to walk to a supertype (e.g.
+                     * SqliteDbProvider -> IDbProvider). This does NOT help
+                     * when the concrete type is defined outside the indexed
+                     * project (e.g. SQLiteDataAdapter from the System.Data.SQLite
+                     * NuGet package): indexers such as scip-dotnet only emit
+                     * SymbolInformation (and thus relationships) at a symbol's
+                     * definition site, and an externally-defined type has no
+                     * such site inside the indexed sources, so no relationship
+                     * data for it exists anywhere in the index. *)
+                    List.exists
+                      (fun sym ->
+                        supertype_matches index (Hashtbl.create 8) raw_names sym)
+                      (Scip_index.find_by_display_name index bare_name))))
 
 let install (index : Scip_index.t) : unit =
   Typing.pro_hook_type_of_expr := Some (resolve index);
