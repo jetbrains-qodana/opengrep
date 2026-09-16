@@ -1,10 +1,20 @@
 (* See Scip_index.mli. *)
 
-type symbol_info = { display_name : string; raw_signature : string option }
+type symbol_info = {
+  display_name : string;
+  raw_signature : string option;
+  type_symbol : string option;
+  relationships : (string * bool) list;
+}
 
 type t = {
   (* (relative_path, start_line0, start_char0_utf16) -> symbol_info *)
   positions : (string * int * int, symbol_info) Hashtbl.t;
+  (* symbol string -> symbol_info, for global/external symbols only (never
+   * "local N" symbols - see is_local_symbol below). This is what lets a
+   * caller start from a [type_symbol] found at some position and walk its
+   * [relationships] to other (global/external) symbols. *)
+  by_symbol : (string, symbol_info) Hashtbl.t;
 }
 
 (* Per the SCIP grammar (scip.proto, around "<symbol> ::= ... | 'local '
@@ -22,7 +32,24 @@ let symbol_info_of_scip (si : Scip.symbol_information) : symbol_info =
         None
     | Some { Scip.text; _ } -> Some text
   in
-  { display_name = si.display_name; raw_signature }
+  (* Best-effort: the first symbol referenced inside the hover signature is
+   * heuristically the type being hovered over (e.g. "SQLiteDataAdapter" in
+   * the C# local-variable hover "SQLiteDataAdapter adapter") - the
+   * variable's own name is the symbol's *definition*, not a reference, so
+   * indexers don't emit a signature occurrence for it. *)
+  let type_symbol =
+    match si.signature_documentation with
+    | Some { Scip.occurrences = occ :: _; _ } when occ.Scip.symbol <> "" ->
+        Some occ.Scip.symbol
+    | _ -> None
+  in
+  let relationships =
+    si.relationships
+    |> List.filter_map (fun (r : Scip.relationship) ->
+           if r.Scip.symbol = "" then None
+           else Some (r.Scip.symbol, r.Scip.is_implementation))
+  in
+  { display_name = si.display_name; raw_signature; type_symbol; relationships }
 
 (* Start (line0, char0) of an occurrence, preferring the structured
  * typed_range and falling back to the deprecated packed `range` field. *)
@@ -100,8 +127,11 @@ let load (paths : Fpath.t list) : t =
   indices
   |> List.iter (fun (idx : Scip.index) ->
          idx.documents |> List.iter (index_document positions global_table));
-  { positions }
+  { positions; by_symbol = global_table }
 
 let lookup (t : t) ~(rel_path : string) ~(line0 : int) ~(char0_utf16 : int) :
     symbol_info option =
   Hashtbl.find_opt t.positions (rel_path, line0, char0_utf16)
+
+let find (t : t) (symbol : string) : symbol_info option =
+  Hashtbl.find_opt t.by_symbol symbol

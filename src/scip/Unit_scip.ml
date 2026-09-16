@@ -39,14 +39,20 @@ let occurrence ~symbol ~line ~start_character ~end_character () : Scip.occurrenc
             ~end_character:(Int32.of_int end_character) ()))
     ()
 
-let symbol_info ~symbol ~display_name ?signature_text () :
+let relationship ~symbol ~is_implementation () : Scip.relationship =
+  Scip.make_relationship ~symbol ~is_implementation ()
+
+let symbol_info ~symbol ~display_name ?signature_text
+    ?(signature_occurrences = []) ?(relationships = []) () :
     Scip.symbol_information =
   let signature_documentation =
     Option.map
-      (fun text -> Scip.make_signature ~language:"typescript" ~text ())
+      (fun text ->
+        Scip.make_signature ~language:"typescript" ~text
+          ~occurrences:signature_occurrences ())
       signature_text
   in
-  Scip.make_symbol_information ~symbol ~display_name
+  Scip.make_symbol_information ~symbol ~display_name ~relationships
     ?signature_documentation ()
 
 let document ?(position_encoding = Scip.Utf16_code_unit_offset_from_line_start)
@@ -59,15 +65,23 @@ let index ?(external_symbols = []) (documents : Scip.document list) :
   Scip.make_index ~documents ~external_symbols ()
 
 (* Compares by structural equality: Scip_index.symbol_info is a plain record
-   of string/string option, no functional values, so (=) is safe here. *)
+   of strings/options/lists, no functional values, so (=) is safe here. *)
 let show_result = function
   | None -> "None"
-  | Some { Scip_index.display_name; raw_signature } ->
-      Printf.sprintf "Some (display_name = %S; raw_signature = %s)"
-        display_name
-        (match raw_signature with
+  | Some
+      { Scip_index.display_name; raw_signature; type_symbol; relationships }
+    ->
+      let show_opt = function
         | None -> "None"
-        | Some s -> Printf.sprintf "Some %S" s)
+        | Some s -> Printf.sprintf "Some %S" s
+      in
+      Printf.sprintf
+        "Some (display_name = %S; raw_signature = %s; type_symbol = %s; \
+         relationships = [%s])"
+        display_name (show_opt raw_signature) (show_opt type_symbol)
+        (relationships
+        |> List.map (fun (s, is_impl) -> Printf.sprintf "(%S, %b)" s is_impl)
+        |> String.concat "; ")
 
 let check_lookup ~msg table ~rel_path ~line0 ~char0_utf16 expected =
   let got = Scip_index.lookup table ~rel_path ~line0 ~char0_utf16 in
@@ -103,7 +117,7 @@ let tests =
         with_table [ idx ] (fun table ->
             check_lookup ~msg:"hit" table ~rel_path:"index.ts" ~line0:1
               ~char0_utf16:2
-              (Some { Scip_index.display_name = "x"; raw_signature = Some "let x: Foo" });
+              (Some { Scip_index.display_name = "x"; raw_signature = Some "let x: Foo"; type_symbol = None; relationships = [] });
             check_lookup ~msg:"wrong column" table ~rel_path:"index.ts"
               ~line0:1 ~char0_utf16:3 None;
             check_lookup ~msg:"wrong line" table ~rel_path:"index.ts" ~line0:0
@@ -142,10 +156,10 @@ let tests =
         with_table [ idx ] (fun table ->
             check_lookup ~msg:"a.ts resolves to A" table ~rel_path:"a.ts"
               ~line0:0 ~char0_utf16:0
-              (Some { Scip_index.display_name = "A"; raw_signature = None });
+              (Some { Scip_index.display_name = "A"; raw_signature = None; type_symbol = None; relationships = [] });
             check_lookup ~msg:"b.ts resolves to B" table ~rel_path:"b.ts"
               ~line0:0 ~char0_utf16:0
-              (Some { Scip_index.display_name = "B"; raw_signature = None });
+              (Some { Scip_index.display_name = "B"; raw_signature = None; type_symbol = None; relationships = [] });
             check_lookup ~msg:"same coordinates in an unindexed file" table
               ~rel_path:"c.ts" ~line0:0 ~char0_utf16:0 None));
     t "UTF-16 surrogate pairs: the column is passed through verbatim"
@@ -174,7 +188,7 @@ let tests =
         with_table [ idx ] (fun table ->
             check_lookup ~msg:"hit at the UTF-16 column" table
               ~rel_path:"index.ts" ~line0:0 ~char0_utf16:6
-              (Some { Scip_index.display_name = "y"; raw_signature = None });
+              (Some { Scip_index.display_name = "y"; raw_signature = None; type_symbol = None; relationships = [] });
             (* The naive UTF-8 byte offset of the same character would be 8
                (4 bytes for the emoji instead of 2 code units); make sure
                that offset is *not* what resolves the symbol. *)
@@ -225,10 +239,10 @@ let tests =
         with_table [ idx ] (fun table ->
             check_lookup ~msg:"a.ts's local 0 resolves to localA" table
               ~rel_path:"a.ts" ~line0:0 ~char0_utf16:0
-              (Some { Scip_index.display_name = "localA"; raw_signature = None });
+              (Some { Scip_index.display_name = "localA"; raw_signature = None; type_symbol = None; relationships = [] });
             check_lookup ~msg:"b.ts's local 0 resolves to localB" table
               ~rel_path:"b.ts" ~line0:0 ~char0_utf16:0
-              (Some { Scip_index.display_name = "localB"; raw_signature = None })));
+              (Some { Scip_index.display_name = "localB"; raw_signature = None; type_symbol = None; relationships = [] })));
     t "an occurrence resolves through an external (cross-file) symbol"
       (fun () ->
         let foo_symbol = "scip-typescript npm . . `foo.d.ts`/Foo#" in
@@ -249,5 +263,129 @@ let tests =
         with_table [ idx ] (fun table ->
             check_lookup ~msg:"resolves via external_symbols" table
               ~rel_path:"index.ts" ~line0:2 ~char0_utf16:9
-              (Some { Scip_index.display_name = "Foo"; raw_signature = None })));
+              (Some { Scip_index.display_name = "Foo"; raw_signature = None; type_symbol = None; relationships = [] })));
+    t "type_symbol is the first referenced symbol inside the hover signature"
+      (fun () ->
+        (* Mirrors a scip-dotnet local variable: `adapter`'s own hover text
+           ("SQLiteDataAdapter adapter") references the SQLiteDataAdapter
+           symbol via a signature occurrence - that's what a caller should
+           use to look up the *type*'s own relationships, not adapter's own
+           (variable) display_name. *)
+        let adapter_symbol = "local 0" in
+        let sqlite_adapter_symbol =
+          "scip-dotnet nuget . . `System.Data.SQLite`/SQLiteDataAdapter#"
+        in
+        let idx =
+          index
+            [
+              document ~relative_path:"a.cs"
+                ~occurrences:
+                  [
+                    occurrence ~symbol:adapter_symbol ~line:0 ~start_character:0
+                      ~end_character:7 ();
+                  ]
+                ~symbols:
+                  [
+                    symbol_info ~symbol:adapter_symbol ~display_name:"adapter"
+                      ~signature_text:"SQLiteDataAdapter adapter"
+                      ~signature_occurrences:
+                        [
+                          occurrence ~symbol:sqlite_adapter_symbol ~line:0
+                            ~start_character:0 ~end_character:18 ();
+                        ]
+                      ();
+                  ]
+                ();
+            ]
+        in
+        with_table [ idx ] (fun table ->
+            check_lookup ~msg:"adapter's own display_name is its identifier,\n\
+                                not its type" table
+              ~rel_path:"a.cs" ~line0:0 ~char0_utf16:0
+              (Some
+                 {
+                   Scip_index.display_name = "adapter";
+                   raw_signature = Some "SQLiteDataAdapter adapter";
+                   type_symbol = Some sqlite_adapter_symbol;
+                   relationships = [];
+                 })));
+    t "no signature occurrences: type_symbol is None" (fun () ->
+        let x_symbol = "local 0" in
+        let idx =
+          index
+            [
+              document ~relative_path:"a.cs"
+                ~occurrences:
+                  [
+                    occurrence ~symbol:x_symbol ~line:0 ~start_character:0
+                      ~end_character:1 ();
+                  ]
+                ~symbols:
+                  [
+                    symbol_info ~symbol:x_symbol ~display_name:"x"
+                      ~signature_text:"int x" ();
+                  ]
+                ();
+            ]
+        in
+        with_table [ idx ] (fun table ->
+            match Scip_index.lookup table ~rel_path:"a.cs" ~line0:0 ~char0_utf16:0 with
+            | Some { Scip_index.type_symbol = None; _ } -> ()
+            | got ->
+                Alcotest.failf
+                  "expected type_symbol = None, got %s" (show_result got)));
+    t "find resolves a global symbol's relationships by symbol string"
+      (fun () ->
+        (* Mirrors the actual bug: SQLiteDataAdapter `is_implementation` a
+           chain of base classes/interfaces up to DbDataAdapter. find lets a
+           caller start from SQLiteDataAdapter's own symbol (e.g. obtained
+           via type_symbol above) and walk that chain. *)
+        let db_data_adapter_symbol =
+          "scip-dotnet nuget . . `System.Data.Common`/DbDataAdapter#"
+        in
+        let sqlite_adapter_symbol =
+          "scip-dotnet nuget . . `System.Data.SQLite`/SQLiteDataAdapter#"
+        in
+        let idx =
+          index
+            ~external_symbols:
+              [
+                symbol_info ~symbol:db_data_adapter_symbol
+                  ~display_name:"DbDataAdapter" ();
+                symbol_info ~symbol:sqlite_adapter_symbol
+                  ~display_name:"SQLiteDataAdapter"
+                  ~relationships:
+                    [
+                      relationship ~symbol:db_data_adapter_symbol
+                        ~is_implementation:true ();
+                    ]
+                  ();
+              ]
+            [ document ~relative_path:"a.cs" ~occurrences:[] ~symbols:[] () ]
+        in
+        with_table [ idx ] (fun table ->
+            (match Scip_index.find table sqlite_adapter_symbol with
+            | Some
+                {
+                  Scip_index.display_name = "SQLiteDataAdapter";
+                  relationships = [ (related, true) ];
+                  _;
+                }
+              when related = db_data_adapter_symbol ->
+                ()
+            | got ->
+                Alcotest.failf
+                  "expected SQLiteDataAdapter with an is_implementation edge \
+                   to DbDataAdapter, got %s"
+                  (match got with
+                  | None -> "None"
+                  | Some { Scip_index.display_name; relationships; _ } ->
+                      Printf.sprintf "display_name=%S, relationships=[%s]"
+                        display_name
+                        (relationships
+                        |> List.map (fun (s, b) -> Printf.sprintf "(%S,%b)" s b)
+                        |> String.concat "; ")));
+            match Scip_index.find table "unknown symbol" with
+            | None -> ()
+            | Some _ -> Alcotest.fail "expected None for an unknown symbol"));
   ]

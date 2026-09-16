@@ -15,10 +15,10 @@ let origin_tok_of_expr (e : G.expr) : Tok.t option =
   | hd :: _ -> Some hd
   | [] -> None
 
-(* Small path -> content cache: resolve/find_display_name are called once
- * per candidate expression, and many of those share the same file within a
- * single scan. Never raises: a file that can no longer be read (e.g. a
- * fake/temp path) just means no SCIP lookup for that expression. *)
+(* Small path -> content cache: resolve/metavariable_type_matches are called
+ * once per candidate expression, and many of those share the same file
+ * within a single scan. Never raises: a file that can no longer be read
+ * (e.g. a fake/temp path) just means no SCIP lookup for that expression. *)
 let file_cache : (Fpath.t, string option) Hashtbl.t = Hashtbl.create 16
 
 let read_file_cached (file : Fpath.t) : string option =
@@ -217,13 +217,8 @@ let resolve (index : Scip_index.t) (lang : Lang.t) (e : G.expr) :
   | None -> None
   | Some symbol_info -> type_of_symbol_info lang symbol_info
 
-let find_display_name (index : Scip_index.t) (e : G.expr) : string option =
-  symbol_at_expr index e
-  |> Option.map
-       (fun ({ display_name; _ } : Scip_index.symbol_info) -> display_name)
-
 (* ------------------------------------------------------------------ *)
-(* CondType fallback: raw `type:`/`types:` text vs. SCIP display_name  *)
+(* CondType fallback: raw `type:`/`types:` text vs. SCIP type info      *)
 (* ------------------------------------------------------------------ *)
 (* Consulted by Match_search_mode's CondType handling when the primary
  * Type.t-based comparison (built from [resolve] above) isn't conclusive,
@@ -261,16 +256,56 @@ let raw_type_matches_scip_display_name (raw : string) (display_name : string)
        (fun sep -> String.equal raw (suffix_after_last_sep display_name sep))
        [ '.'; ':' ]
 
+(* Walks `is_implementation` relationships (see scip.proto's Relationship
+ * message) transitively from [symbol], checking at each step whether that
+ * symbol's own display_name matches one of [raw_names]. This is what lets
+ * `metavariable-type: DbDataAdapter` match an expression whose *concrete*
+ * type is e.g. SQLiteDataAdapter (a subtype): the direct name comparison
+ * above only ever catches an exact type, never an ancestor.
+ * [visited] guards against relationship cycles and repeated diamonds. *)
+let rec supertype_matches (index : Scip_index.t)
+    (visited : (string, unit) Hashtbl.t) (raw_names : string list)
+    (symbol : string) : bool =
+  if Hashtbl.mem visited symbol then false
+  else begin
+    Hashtbl.add visited symbol ();
+    match Scip_index.find index symbol with
+    | None -> false
+    | Some { display_name; relationships; _ } ->
+        List.exists
+          (fun raw -> raw_type_matches_scip_display_name raw display_name)
+          raw_names
+        || List.exists
+             (fun (related_symbol, is_implementation) ->
+               is_implementation
+               && supertype_matches index visited raw_names related_symbol)
+             relationships
+  end
+
 let metavariable_type_matches (index : Scip_index.t) (_lang : Lang.t)
     (e : G.expr) (ts : G.type_ list) : bool =
-  match find_display_name index e with
+  match symbol_at_expr index e with
   | None -> false
-  | Some display_name ->
-      ts
-      |> List.exists (fun t ->
-             match raw_head_name_of_type t with
-             | None -> false
-             | Some raw -> raw_type_matches_scip_display_name raw display_name)
+  | Some info -> (
+      let raw_names = List.filter_map raw_head_name_of_type ts in
+      if raw_names = [] then false
+      else
+        match info.type_symbol with
+        | Some sym -> supertype_matches index (Hashtbl.create 8) raw_names sym
+        | None -> (
+            (* The indexer didn't emit a signature occurrence for the type
+             * (see symbol_info_of_scip): fall back to the raw_signature
+             * text heuristic. No relationship data is reachable this way,
+             * so only an exact/suffix name match is possible here. *)
+            match info.raw_signature with
+            | None -> false
+            | Some raw -> (
+                match type_expr_text_of_raw_signature raw with
+                | None -> false
+                | Some candidate ->
+                    List.exists
+                      (fun r -> raw_type_matches_scip_display_name r candidate)
+                      raw_names)))
 
 let install (index : Scip_index.t) : unit =
   Typing.pro_hook_type_of_expr := Some (resolve index);
