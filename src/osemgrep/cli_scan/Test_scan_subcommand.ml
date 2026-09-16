@@ -182,6 +182,92 @@ let scip_index_bytes () : string =
   Scip.encode_pb_index index encoder;
   Pbrt.Encoder.to_string encoder
 
+(* coupling: same rule shape for both the base-type-via-SCIP golden test and
+ * the plain pattern below, matched against a base type Go's stdlib
+ * doesn't define locally - IFoo is only known through the SCIP index. *)
+let scip_go_base_type_yaml_content =
+  {|
+rules:
+  - id: match-scip-go-base-type
+    patterns:
+      - pattern: $X.doSink()
+      - metavariable-type:
+          metavariable: $X
+          type: IFoo
+    message: "found a call to doSink() on something implementing IFoo"
+    languages: [go]
+    severity: WARNING
+|}
+
+let scip_go_base_type_go_content =
+  {|
+package probe
+
+func f() {
+  x := &Impl{}
+  x.doSink()
+}
+|}
+
+(* A synthetic SCIP index mirroring the *worst case* real-world indexer
+ * behavior found via scip-dotnet/scip-go: no [signature_documentation] (the
+ * hover is rendered into the deprecated [documentation] field instead, as a
+ * markdown-fenced code block - see Scip_index.ml's symbol_info_of_scip), no
+ * [display_name] on any symbol (so relationship-walking must derive a name
+ * straight from each symbol string - see Scip_index.effective_display_name),
+ * and the local variable `x`'s hover text is Go's own "var <name> <type>"
+ * shape with a pointer sigil ("var x *Impl") - the reverse name/type order
+ * of the C#/Java "Type name" shape, which needs its own detection (see
+ * Scip_resolver.go_var_name_then_type and strip_leading_pointer_sigils).
+ * `Impl` is only known to implement `IFoo` via [relationships]: this is
+ * exactly the mechanism that lets metavariable-type match a subtype it's
+ * never told about directly, and this fixture is the regression test for
+ * getting *all three* real-world quirks right at once. *)
+let scip_go_index_bytes () : string =
+  let ifoo_symbol = "scip-go gomod example.com/probe . `example.com/probe`/IFoo#" in
+  let impl_symbol = "scip-go gomod example.com/probe . `example.com/probe`/Impl#" in
+  let x_symbol = "local 0" in
+  let ifoo_symbol_info =
+    Scip.make_symbol_information ~symbol:ifoo_symbol
+      ~documentation:[ "```go\ntype IFoo interface{ doSink() }\n```" ] ()
+  in
+  let impl_symbol_info =
+    Scip.make_symbol_information ~symbol:impl_symbol
+      ~documentation:[ "```go\ntype Impl struct{}\n```" ]
+      ~relationships:
+        [ Scip.make_relationship ~symbol:ifoo_symbol ~is_implementation:true () ]
+      ()
+  in
+  let x_symbol_info =
+    Scip.make_symbol_information ~symbol:x_symbol
+      ~documentation:[ "```go\nvar x *Impl\n```" ] ()
+  in
+  let occ =
+    (* Points at the `x` *reference* in "x.doSink()" (line 5, 0-indexed) -
+       not its definition on the line above - since that's the position
+       symbol_at_expr looks up for the $X metavariable bound by the rule's
+       pattern. *)
+    Scip.make_occurrence ~symbol:x_symbol
+      ~typed_range:
+        (Scip.Single_line_range
+           (Scip.make_single_line_range ~line:5l ~start_character:2l
+              ~end_character:3l ()))
+      ()
+  in
+  let doc =
+    Scip.make_document ~relative_path:"index.go" ~language:"go"
+      ~occurrences:[ occ ] ~symbols:[ x_symbol_info ]
+      ~position_encoding:Scip.Utf16_code_unit_offset_from_line_start ()
+  in
+  let index =
+    Scip.make_index ~documents:[ doc ]
+      ~external_symbols:[ ifoo_symbol_info; impl_symbol_info ]
+      ()
+  in
+  let encoder = Pbrt.Encoder.create () in
+  Scip.encode_pb_index index encoder;
+  Pbrt.Encoder.to_string encoder
+
 let dummy_app_token = "FAKETESTINGAUTHTOKEN"
 
 (* coupling: subset of cli/tests/conftest.py ALWAYS_MASK *)
@@ -420,6 +506,27 @@ let test_scip_metavariable_type_baseline (caps : Scan_subcommand.caps) () =
           in
           Exit_code.Check.ok exit_code))
 
+let test_scip_metavariable_type_base_type_via_index
+    (caps : Scan_subcommand.caps) () =
+  with_env_app_token (fun () ->
+      let repo_files =
+        [
+          F.File ("rules.yml", scip_go_base_type_yaml_content);
+          F.File ("index.go", scip_go_base_type_go_content);
+          F.File ("index.scip", scip_go_index_bytes ());
+        ]
+      in
+      Testutil_git.with_git_repo ~verbose:true repo_files (fun _cwd ->
+          let exit_code =
+            without_settings (fun () ->
+                Scan_subcommand.main caps
+                  [|
+                    "opengrep-scan"; "--experimental"; "--config"; "rules.yml";
+                    "--scip-index"; "index.scip"; "--json";
+                  |])
+          in
+          Exit_code.Check.ok exit_code))
+
 (*****************************************************************************)
 (* Entry point *)
 (*****************************************************************************)
@@ -459,4 +566,10 @@ let tests (caps : < Scan_subcommand.caps >) =
       t "metavariable-type on an externally-defined type: matches with --scip-index"
         ~checked_output:(Testo.stdxxx ()) ~normalize
         (test_scip_metavariable_type_with_index caps);
+      t "metavariable-type on a base type, resolved by name through a \
+         relationship, with an indexer that never sets display_name or \
+         signature_documentation and a Go-shaped pointer hover (\"var x \
+         *Impl\")"
+        ~checked_output:(Testo.stdxxx ()) ~normalize
+        (test_scip_metavariable_type_base_type_via_index caps);
     ]

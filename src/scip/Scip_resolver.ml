@@ -144,6 +144,21 @@ let matching_angle_close (s : string) (open_idx : int) : int option =
   done;
   !result
 
+(* Strips a leading pointer/reference sigil, e.g. Go's "*Impl" (hover text
+ * for a pointer-typed variable) or Rust's "&Impl" - callers writing
+ * `metavariable-type: Impl` expect that to match a *Impl-typed value too,
+ * the same way the primary Type.t-based path already unwraps TyPointer on
+ * both sides generically (see m_generic_type_vs_type_t). Only strips at the
+ * very front: "**Impl" (pointer to pointer) strips both, but a '*' anywhere
+ * else (e.g. inside generic args) is left alone. *)
+let strip_leading_pointer_sigils (s : string) : string =
+  let len = String.length s in
+  let i = ref 0 in
+  while !i < len && (s.[!i] = '*' || s.[!i] = '&') do
+    incr i
+  done;
+  String.sub s !i (len - !i)
+
 (* [candidate] may still be followed by trailing text unrelated to the type
  * itself - e.g. C# hovers have no ':' separator ("SQLiteDataAdapter da"), so
  * [type_expr_text_of_raw_signature] below can only strip *leading*
@@ -152,6 +167,7 @@ let matching_angle_close (s : string) (open_idx : int) : int option =
  * single level of <...> generic arguments, discarding anything after (the
  * variable/property name). *)
 let head_type_text (s : string) : string option =
+  let s = strip_leading_pointer_sigils s in
   match parse_dotted_ident s 0 with
   | None -> None
   | Some (name, next) -> (
@@ -161,6 +177,22 @@ let head_type_text (s : string) : string option =
         | Some close -> Some (String.sub s 0 (close + 1))
       else Some name)
 
+(* Go's hover convention (via gopls/scip-go) renders local variables as
+ * "var <name> <type>" - keyword, then NAME, then TYPE, the reverse of the
+ * C#/Java "[keywords] Type name" shape strip_leading_keywords targets (e.g.
+ * "var x *Impl", "var buf Buffer"). Only tried when there's no top-level
+ * colon: TypeScript's own hover also literally starts with "var" (e.g. "var
+ * x: Impl"), but that shape is already handled by the colon-based branch
+ * below, tried first. *)
+let go_var_name_then_type (s : string) : string option =
+  if not (String.starts_with ~prefix:"var " s) then None
+  else
+    let after_var = String.sub s 4 (String.length s - 4) in
+    match parse_dotted_ident after_var 0 with
+    | None -> None
+    | Some (_name, next) ->
+        Some (String.sub after_var next (String.length after_var - next))
+
 let type_expr_text_of_raw_signature (raw : string) : string option =
   let raw = String.trim raw in
   if raw = "" then None
@@ -168,7 +200,10 @@ let type_expr_text_of_raw_signature (raw : string) : string option =
     let candidate =
       match last_top_level_colon raw with
       | Some i -> String.sub raw (i + 1) (String.length raw - i - 1)
-      | None -> strip_leading_keywords raw
+      | None -> (
+          match go_var_name_then_type raw with
+          | Some rest -> rest
+          | None -> strip_leading_keywords raw)
     in
     match String.trim candidate with
     | "" -> None

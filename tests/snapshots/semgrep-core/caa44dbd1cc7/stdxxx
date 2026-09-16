@@ -1,0 +1,43 @@
+--- begin input files ---
+index.go
+index.scip
+rules.yml
+--- end input files ---
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'init' '-b' 'main'
+Initialized empty Git repository in <TMP>/<MASKED>/.git/
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'config' 'user.name' 'Tester'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'config' 'user.email' 'tester@example.com'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'add' '.'
+[<MASKED TIMESTAMP>][INFO]: Running external command: 'git' 'commit' '-m' 'Add files'
+[main (root-commit) <MASKED>] Add files
+ 3 files changed, 18 insertions(+)
+ create mode 100644 index.go
+ create mode 100644 index.scip
+ create mode 100644 rules.yml
+
+┌──────────────┐
+│ Opengrep CLI │
+└──────────────┘
+
+[32m✔[39m [1mOpengrep OSS[0m
+  [32m✔[39m Basic security coverage for first-party code vulnerabilities.
+
+[1m  Loading rules from local config...[0m
+
+
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 3 files tracked by git with 1 Code rule:
+  Scanning 3 files.
+{"version":"<MASKED>","results":[{"check_id":"match-scip-go-base-type","path":"index.go","start":{"line":6,"col":3,"offset":44},"end":{"line":6,"col":13,"offset":54},"extra":{"metavars":{"$X":{"start":{"line":6,"col":3,"offset":44},"end":{"line":6,"col":4,"offset":45},"abstract_content":"x"}},"message":"found a call to doSink() on something implementing IFoo","metadata":{},"severity":"WARNING","fingerprint":"0a1eb03bf2a2c05cce457d0dc57c588724e9c78de5401c029f31f7ad27a9b487a6ca7cc7292cbb0f77336dafa5c61a2b6ff78e9b0f74ee4498313feec868bb26_0","lines":"  x.doSink()","is_ignored":false,"validation_state":"NO_VALIDATOR","engine_kind":"OSS"}}],"errors":[],"paths":{"scanned":["index.go"]},"interfile_languages_used":[],"skipped_rules":[]}
+
+
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+Some files were skipped or only partially analyzed.
+  Scan was limited to files tracked by git.
+
+Ran 1 rule on 1 file: 1 finding.
+ASSERT exit code

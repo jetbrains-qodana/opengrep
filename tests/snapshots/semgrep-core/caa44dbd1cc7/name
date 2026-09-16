@@ -1,0 +1,1 @@
+Osemgrep Scan (e2e) > metavariable-type on a base type, resolved by name through a relationship, with an indexer that never sets display_name or signature_documentation and a Go-shaped pointer hover ("var x *Impl")
