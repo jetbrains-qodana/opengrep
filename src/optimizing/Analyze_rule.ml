@@ -542,6 +542,124 @@ let _run_final (AndFinal xs) big_str =
 (* Run the regexps *)
 (*****************************************************************************)
 
+(* A Bloom-style index of the 4-byte substrings ("grams") a file contains,
+ * used to answer "this literal is definitely not in the file" without
+ * touching the file.
+ *
+ * Memoizing the search per file (see [literal_occurs]) still leaves one
+ * full scan per distinct literal, and a literal that is absent - the
+ * overwhelmingly common case - is only known to be absent after the whole
+ * file has been read. The grams invert that: one pass over the file at the
+ * start, then a handful of bit tests per literal.
+ *
+ * No false negatives, which is what correctness rests on here: every gram of
+ * a literal that occurs in the file is a gram of the file, so its bit is
+ * set, so a set-bit test can never reject a literal that is really there.
+ * Hash collisions only ever cost an unnecessary scan. *)
+let gram_len = 4
+let gram_log_bits = 18 (* 2^18 bits = 32 KiB per domain *)
+let gram_mask = (1 lsl gram_log_bits) - 1
+let gram_nbytes = 1 lsl (gram_log_bits - 3)
+
+(* Knuth-style multiplicative hash; the high bits of the product are the
+ * well-mixed ones, hence the shift before the mask. *)
+let gram_hash (w : int) : int = w * (0x27220A95 lsr 11) land gram_mask
+
+let fill_gram_index (bm : Bytes.t) (s : string) : unit =
+  Bytes.fill bm 0 gram_nbytes '\000';
+  let n = String.length s in
+  let w = ref 0 in
+  for i = 0 to n - 1 do
+    (* Rolling window: the low byte is s[i-3], the high byte s[i]. *)
+    w := (!w lsr 8) lor (Char.code (String.unsafe_get s i) lsl 24);
+    if i >= gram_len - 1 then begin
+      let h = gram_hash !w in
+      let byte = h lsr 3 in
+      Bytes.unsafe_set bm byte
+        (Char.unsafe_chr
+           (Char.code (Bytes.unsafe_get bm byte) lor (1 lsl (h land 7))))
+    end
+  done
+
+(* [true] only when [sub] is certainly not in the indexed file. [false] means
+ * "no idea", including for literals too short to have a gram. *)
+let gram_rejects (bm : Bytes.t) (sub : string) : bool =
+  let m = String.length sub in
+  if m < gram_len then false
+  else begin
+    let w = ref 0 in
+    let i = ref 0 in
+    let rejected = ref false in
+    while (not !rejected) && !i < m do
+      w := (!w lsr 8) lor (Char.code (String.unsafe_get sub !i) lsl 24);
+      if !i >= gram_len - 1 then begin
+        let h = gram_hash !w in
+        if
+          Char.code (Bytes.unsafe_get bm (h lsr 3)) land (1 lsl (h land 7))
+          =|= 0
+        then rejected := true
+      end;
+      incr i
+    done;
+    !rejected
+  end
+
+(* What the prefilter knows about the file it is currently screening: its
+ * gram index, and the literals already looked up in it.
+ *
+ * A rule set aimed at one library names that library's namespace in nearly
+ * every rule, so the same literals are looked for again and again in the
+ * same file - once per rule that mentions it, and once more for taint
+ * rules, which are screened twice (see [Taint_engine]).
+ *
+ * Rebuilt whenever the content changes, which both callers make cheap to
+ * detect: they force the target's [lazy_content] once and hand the very
+ * same string to every rule, so physical equality is what identifies "still
+ * the same file", and a stale hit is impossible, since [==] on two strings
+ * means one string. Per-domain, like [prefilter_cache], because targets are
+ * processed one per domain at a time. *)
+type file_screen = {
+  mutable content : string;
+  grams : Bytes.t;
+  memo : (string, bool) Hashtbl.t;
+}
+
+let file_screen_dls : file_screen Domain.DLS.key =
+  Domain.DLS.new_key (fun () ->
+      {
+        content = "";
+        grams = Bytes.make gram_nbytes '\000';
+        memo = Hashtbl.create 1024;
+      })
+
+let literal_occurs (big_str : string) (id : string) : bool =
+  let st = Domain.DLS.get file_screen_dls in
+  if not (phys_equal st.content big_str) then begin
+    st.content <- big_str;
+    fill_gram_index st.grams big_str;
+    Hashtbl.clear st.memo
+  end;
+  (* Asked before the memo on purpose: a rejection is a few bit tests, which
+   * beats hashing the literal, and it is the answer almost every time. *)
+  if gram_rejects st.grams id then false
+  else
+    match Hashtbl.find_opt st.memo id with
+    | Some hit -> hit
+    | None ->
+        Log.debug (fun m -> m "check for the presence of %S" id);
+        (* Compiling the literal here, on every miss, looks wasteful, and a
+         * hand-rolled byte scan was tried in its place. It measured exactly
+         * even (three paired runs, within a few hundred ms of each other on
+         * an 8420-file corpus): the gram index above already removes almost
+         * every call, and PCRE2's literal search is vectorised where a
+         * straightforward OCaml loop is not. Keeping PCRE also keeps
+         * [~on_error:true], i.e. "assume the rule is relevant" when the
+         * subject is not valid UTF-8. *)
+        let re = Pcre2_.matching_exact_string id in
+        let hit = Pcre2_.unanchored_match ~on_error:true re big_str in
+        Hashtbl.replace st.memo id hit;
+        hit
+
 let eval_and p (And xs) =
   if List_.null xs then raise EmptyAnd;
   xs
@@ -550,29 +668,50 @@ let eval_and p (And xs) =
          xs |> List.exists (fun x -> p x) |> fun v ->
          (* Dumper.dump fails in js_of_ocaml. It's a printout so let's just
             ignore it *)
-         (try
-            if not v then
+         (* The guard keeps the closure and the [Or] block below from being
+            allocated on every failing disjunct: that is the common case on a
+            file that matches nothing, and it runs millions of times a scan. *)
+         (if (not v) && Logs.Src.level Log_optimizing.src =*= Some Logs.Debug
+          then
+            try
               Log.debug (fun m -> m "this Or failed: %s" (Dumper.dump (Or xs)))
-          with
-         | e ->
-             Log.err (fun m ->
-                 m "exception while dumping: %s" (Printexc.to_string e)));
+            with
+            | e ->
+                Log.err (fun m ->
+                    m "exception while dumping: %s" (Printexc.to_string e)));
          v)
+
+(* Put the conjuncts a file is cheapest to fail on first.
+ *
+ * [eval_and] stops at the first conjunct that fails, so on a file that
+ * matches nothing - nearly every file - the order decides how much of the
+ * CNF is ever looked at. A disjunct of literals costs a few bit tests
+ * against the gram index; one holding a regexp costs a PCRE pass over the
+ * whole file. Running the literals first means the regexps are only reached
+ * on the files whose literals all hit.
+ *
+ * Conjunction is commutative and the leaves are pure, so this only moves
+ * work around. It is applied to the evaluation copy alone: the CNF handed
+ * to [prefilter_formula_of_cnf_step2], which is what external consumers of
+ * the prefilter see, keeps the order it was built in. *)
+let order_cheap_first (And xs) =
+  let no_regexp (Or ys) =
+    ys
+    |> List.for_all (function
+         | Idents _ -> true
+         | Regexp2_search _ -> false)
+  in
+  let cheap, costly = xs |> List.partition no_regexp in
+  And (cheap @ costly)
 
 let run_cnf_step2 cnf big_str =
   cnf
   |> eval_and (function
        | Idents xs ->
-           xs
-           |> List.for_all (fun id ->
-                  Log.debug (fun m -> m "check for the presence of %S" id);
-                  (* TODO: matching_exact_word does not work, why??
-                     because string literals and metavariables are put under
-                     Idents? *)
-                  let re = Pcre2_.matching_exact_string id in
-                  (* Note that in case of a PCRE error, we want to assume
-                     that the rule is relevant, hence ~on_error:true! *)
-                  Pcre2_.unanchored_match ~on_error:true re big_str)
+           (* TODO: matching_exact_word does not work, why??
+              because string literals and metavariables are put under
+              Idents? *)
+           xs |> List.for_all (literal_occurs big_str)
        | Regexp2_search re -> Pcre2_.unanchored_match re big_str)
 [@@profiling]
 
@@ -624,11 +763,12 @@ let regexp_prefilter_of_formula ~xlang f : prefilter option =
   in
   try
     let* final = compute_final_cnf ~is_id_mvar f in
+    let eval_order = order_cheap_first final in
     Some
       ( prefilter_formula_of_cnf_step2 final,
         fun big_str ->
           try
-            run_cnf_step2 final big_str
+            run_cnf_step2 eval_order big_str
             (* run_cnf_step2 (And [Or [Idents ["jsonwebtoken"]]]) big_str *)
           with
           (* can happen in spacegrep rules as we don't extract anything from t *)
