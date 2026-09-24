@@ -3119,8 +3119,7 @@ and declaration (env : env) (x : CST.declaration) : definition list =
       let xs =
         xs
         |> List_.filter_map (function
-             (* TODO *)
-             | Left _fld -> None
+             | Left fld -> Some fld
              | Right _sts -> None)
       in
       let c =
