@@ -712,6 +712,12 @@ let hook_call_of_metavariable_name
     arguments = List.rev arguments;
   }
 
+let hook_call_of_metavariable_type mvar types : Rule.taint_stmt_hook_call =
+  {
+    R.hook_id = "metavariable-type";
+    arguments = [ ("metavariable", [ mvar ]); ("types", types) ];
+  }
+
 let rec filter_ranges (env : env) (xs : (RM.t * MV.bindings list) list)
     (cond : R.metavar_cond) : (RM.t * MV.bindings list) list =
   let file = env.xtarget.path.internal_path_to_content in
@@ -742,46 +748,51 @@ let rec filter_ranges (env : env) (xs : (RM.t * MV.bindings list) list)
              with
              | [] -> None
              | bindings -> Some (r, bindings @ new_bindings))
-         | R.CondType (mvar, opt_lang, _, ts) -> (
-             let* mval = List.assoc_opt mvar bindings in
-             match Metavariable.mvalue_to_expr mval with
-             | Some e ->
-                 let lang =
-                   match Option.value opt_lang ~default:env.xtarget.xlang with
-                   | Xlang.L (lang, _) -> lang
-                   | Xlang.LRegex
-                   | Xlang.LSpacegrep
-                   | Xlang.LAliengrep ->
-                       raise Impossible
-                 in
-                 let ast, _ = Lazy.force env.xtarget.lazy_ast_and_errors in
-                 (* This call iterates over the program's top-level statements, and
-                    thus incurs some cost, but it shouldn't be much.
-                 *)
-                 let env =
-                   Matching_generic.environment_of_program lang env.xconf.config
-                     ast
-                 in
-                 let matches =
-                   (* We check whether any of the types listed in the
-                      `type` field match. These types are treated as
-                      connected by "or" logical operators. *)
-                   ts
-                   |> List.concat_map (fun t ->
-                          GG.m_compatible_type lang
-                            (mvar, Tok.unsafe_fake_tok "")
-                            t e env)
-                 in
+         | R.CondType (mvar, opt_lang, type_strings, ts) -> (
+             if env.xconf.defer_metavariable_hooks then
+               apply_hook
+                 (hook_call_of_metavariable_type mvar type_strings)
+                 None
+             else
+               let* mval = List.assoc_opt mvar bindings in
+               match Metavariable.mvalue_to_expr mval with
+               | Some e ->
+                   let lang =
+                     match Option.value opt_lang ~default:env.xtarget.xlang with
+                     | Xlang.L (lang, _) -> lang
+                     | Xlang.LRegex
+                     | Xlang.LSpacegrep
+                     | Xlang.LAliengrep ->
+                         raise Impossible
+                   in
+                   let ast, _ = Lazy.force env.xtarget.lazy_ast_and_errors in
+                   (* This call iterates over the program's top-level statements, and
+                      thus incurs some cost, but it shouldn't be much.
+                   *)
+                   let env =
+                     Matching_generic.environment_of_program lang env.xconf.config
+                       ast
+                   in
+                   let matches =
+                     (* We check whether any of the types listed in the
+                        `type` field match. These types are treated as
+                        connected by "or" logical operators. *)
+                     ts
+                     |> List.concat_map (fun t ->
+                            GG.m_compatible_type lang
+                              (mvar, Tok.unsafe_fake_tok "")
+                              t e env)
+                   in
 
-                 (* the type can also contain metavariables, but we probably
-                  * don't want to use that in other parts of the rules, so it's
-                  * probably fine to just check whether the match is empty or
-                  * not *)
-                 matches <> [] |> map_bool r
-             | None ->
-                 error env
-                   (spf "couldn't find metavar %s in the match results." mvar);
-                 None)
+                   (* the type can also contain metavariables, but we probably
+                    * don't want to use that in other parts of the rules, so it's
+                    * probably fine to just check whether the match is empty or
+                    * not *)
+                   matches <> [] |> map_bool r
+               | None ->
+                   error env
+                     (spf "couldn't find metavar %s in the match results." mvar);
+                   None)
          | R.CondName ({ mvar; _ } as cond) -> (
              let hook = hook_call_of_metavariable_name cond in
              match !hook_pro_metavariable_name with
