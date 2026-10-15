@@ -201,4 +201,21 @@ let tests =
                 } ) ->
               ()
           | _ -> Alcotest.fail "expected a do-while on not c");
+      t "a numeric for iterates over a range" (fun () ->
+          match (first_statement "for i = a, b, c do end").s with
+          | G.For
+              ( _,
+                G.ForEach
+                  ( G.PatId (("i", _), _),
+                    _,
+                    {
+                      e =
+                        G.Call
+                          ( { e = G.IdSpecial (G.Op G.Range, _); _ },
+                            (_, [ G.Arg _; G.Arg _; G.Arg _ ], _) );
+                      _;
+                    } ),
+                _ ) ->
+              ()
+          | _ -> Alcotest.fail "expected i over Range(a, b, c)");
     ]

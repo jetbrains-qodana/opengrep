@@ -569,21 +569,26 @@ and map_in_loop_expression (env : env)
 and map_loop_expression (env : env)
     ((v1, v2, v3, v4, v5, v6) : CST.loop_expression) =
   let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-  let _v2 = token env v2 (* "=" *) in
-  let _v3 = map_expression env v3 in
-  let var : G.variable_definition = G.empty_var in
-  let for_init_var = G.ForInitVar (G.basic_entity v1, var) in
-  let _v4 = token env v4 (* "," *) in
+  let v2 = token env v2 (* "=" *) in
+  let v3 = map_expression env v3 in
+  let v4 = token env v4 (* "," *) in
   let v5 = map_expression env v5 in
   let v6 =
     match v6 with
     | Some (v1, v2) ->
         let _v1 = token env v1 (* "," *) in
         let v2 = map_expression env v2 in
-        Some v2
-    | None -> None
+        [ v2 ]
+    | None -> []
   in
-  G.ForClassic ([ for_init_var ], Some v5, v6)
+  (* for i = start, limit, step iterates i over the range from start to
+   * limit, as the range loops of Rust *)
+  let range =
+    G.Call
+      (G.IdSpecial (G.Op G.Range, v4) |> G.e, fb (List_.map G.arg (v3 :: v5 :: v6)))
+    |> G.e
+  in
+  G.ForEach (G.PatId (v1, G.empty_id_info ()), v2, range)
 
 and map_global_variable (env : env) (x : CST.global_variable) : G.expr =
   match x with
