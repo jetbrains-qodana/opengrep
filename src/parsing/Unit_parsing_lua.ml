@@ -288,4 +288,30 @@ let tests =
           | ops ->
               Alcotest.failf "expected BitXor, Pow, got %s"
                 (String.concat ", " (List.map G.show_operator ops)));
+      t "a vararg expression is the name of the vararg parameter" (fun () ->
+          match
+            (first_statement
+               "local function f(...) return select(\"#\", ...) end")
+              .s
+          with
+          | G.DefStmt (_, G.FuncDef { fbody = G.FBStmt body; _ }) -> (
+              let args = ref [] in
+              let visitor =
+                object
+                  inherit [_] G.iter as super
+
+                  method! visit_expr env e =
+                    (match e.e with
+                    | G.Call (_, (_, xs, _)) -> args := xs
+                    | _ -> ());
+                    super#visit_expr env e
+                end
+              in
+              visitor#visit_stmt () body;
+              match !args with
+              (* the name is not resolved: Naming_AST declares no rest
+                 parameter in any language *)
+              | [ _; G.Arg { e = G.N (G.Id (("...", _), _)); _ } ] -> ()
+              | _ -> Alcotest.fail "expected the name ...")
+          | _ -> Alcotest.fail "expected a local function");
     ]

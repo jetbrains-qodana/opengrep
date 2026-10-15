@@ -123,6 +123,13 @@ let vararg_parameter (env : env) tok =
   | Pattern -> G.ParamEllipsis tok
   | Target -> G.ParamRest (tok, G.param_of_id ("...", tok))
 
+(* "..." is a reference to the vararg parameter in a program but an ellipsis in
+ * a pattern *)
+let vararg_expression (env : env) tok =
+  match env.extra with
+  | Pattern -> G.Ellipsis tok
+  | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
+
 let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
   let lp = token env v1 (* "(" *) in
   let params =
@@ -393,7 +400,7 @@ and map_else_ (env : env) ((v1, v2, v3) : CST.else_) : G.stmt =
 and map_expression (env : env) (x : CST.expression) : G.expr =
   (match x with
   | `Next tok -> G.OtherExpr (("next", token env tok), [])
-  | `Spread tok -> G.Ellipsis (token env tok) (* "..." *)
+  | `Spread tok -> vararg_expression env (token env tok) (* "..." *)
   | `Prefix x ->
       let x = map_prefix env x in
       x.G.e
@@ -819,7 +826,6 @@ let parse file =
 
       map_program env cst)
 
-(* todo: special mode to convert Ellipsis in the right construct! *)
 let parse_pattern str =
   H.wrap_parser
     (fun () -> Tree_sitter_lua.Parse.string str)
