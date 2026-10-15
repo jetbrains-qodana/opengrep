@@ -178,6 +178,15 @@ let tests =
             "values"
             [ "x"; "x"; "x"; "x"; "x" ]
             (string_values (G.Pr ast)));
+      t "line breaks in long strings are newlines" (fun () ->
+          let ast =
+            parse_program
+              "local a = [[\r\nx\r\ny]]\n\
+               local b = [[\rx\ry]]\n\
+               local c = [[\n\rx\n\ry]]\n"
+          in
+          Alcotest.(check (list string))
+            "values" [ "x\ny"; "x\ny"; "x\ny" ] (string_values (G.Pr ast)));
       t "a field read is a field access" (fun () ->
           match (first_statement "local a = t.a.b").s with
           | G.DefStmt (_, G.VarDef { vinit = Some e; _ }) ->

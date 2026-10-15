@@ -76,13 +76,16 @@ let ident (env : env) (tok : CST.identifier) =
   G.Id (identifier env tok, G.empty_id_info ())
 
 (* the content of a long string such as [[x]] or [==[x]==]; a newline right
- * after the opening bracket is not part of the string *)
+ * after the opening bracket is not part of the string, and each line break,
+ * \r\n, \n\r, \n or \r, is a \n *)
 let long_string_content s =
   let level = String.index_from s 1 '[' - 1 in
   let delimiter = level + 2 in
   let content = String.sub s delimiter (String.length s - (2 * delimiter)) in
-  if String.starts_with ~prefix:"\r\n" content then Str.string_after content 2
-  else if String.starts_with ~prefix:"\n" content then Str.string_after content 1
+  let content =
+    Str.global_replace (Str.regexp "\r\n\\|\n\r\\|\r") "\n" content
+  in
+  if String.starts_with ~prefix:"\n" content then Str.string_after content 1
   else content
 
 let string_literal (env : env) (tok : CST.identifier) =
