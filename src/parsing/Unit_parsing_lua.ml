@@ -54,6 +54,23 @@ let if_conditions (any : G.any) =
   visitor#visit_any () any;
   List.rev !conditions
 
+let binary_operators (any : G.any) =
+  let operators = ref [] in
+  let visitor =
+    object
+      inherit [_] G.iter as super
+
+      method! visit_expr env e =
+        (match e.e with
+        | G.Call ({ e = G.IdSpecial (G.Op op, _); _ }, (_, [ _; _ ], _)) ->
+            operators := op :: !operators
+        | _ -> ());
+        super#visit_expr env e
+    end
+  in
+  visitor#visit_any () any;
+  List.rev !operators
+
 let unary_operators (any : G.any) =
   let operators = ref [] in
   let visitor =
@@ -262,4 +279,13 @@ let tests =
                 [ "x = value"; "y = value"; "positional" ]
                 (List.map field fields)
           | _ -> Alcotest.fail "expected a table constructor");
+      t "~ is a bitwise xor and ^ a power" (fun () ->
+          match
+            binary_operators
+              (G.Pr (parse_program "local a = x ~ y\nlocal b = x ^ y"))
+          with
+          | [ G.BitXor; G.Pow ] -> ()
+          | ops ->
+              Alcotest.failf "expected BitXor, Pow, got %s"
+                (String.concat ", " (List.map G.show_operator ops)));
     ]

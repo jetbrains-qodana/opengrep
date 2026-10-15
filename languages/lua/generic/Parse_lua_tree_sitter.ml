@@ -295,7 +295,7 @@ and map_binary_operation (env : env) (x : CST.binary_operation) =
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "~" *) in
       let v3 = map_expression env v3 in
-      G.Call (G.IdSpecial (G.Op G.BitNot, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
+      G.Call (G.IdSpecial (G.Op G.BitXor, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
   | `Exp_AMP_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "&" *) in
@@ -351,7 +351,7 @@ and map_binary_operation (env : env) (x : CST.binary_operation) =
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "^" *) in
       let v3 = map_expression env v3 in
-      G.Call (G.IdSpecial (G.Op G.BitXor, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
+      G.Call (G.IdSpecial (G.Op G.Pow, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
 
 and map_statement_list (env : env) (x : CST.statement list) : G.stmt list =
   let v1 = List_.map (map_statement env) x in
