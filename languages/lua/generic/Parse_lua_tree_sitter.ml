@@ -440,9 +440,9 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
   |> G.e
 
 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
-and map_field (env : env) (x : CST.field) : G.expr =
-  (* a table constructor is a dictionary, as in Python: a keyed field is a
-   * key-value pair and a positional field is an element *)
+and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
+  (* a table constructor is a dictionary, as in Python: a field is a
+   * key-value pair *)
   match x with
   | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
       let _v1 = token env v1 (* "[" *) in
@@ -457,16 +457,27 @@ and map_field (env : env) (x : CST.field) : G.expr =
       let v3 = map_expression env v3 in
       (* x = v is ["x"] = v *)
       G.keyval (G.L (G.String (fb v1)) |> G.e) v2 v3
-  | `Exp x -> map_expression env x
+  | `Exp x -> (
+      let v = map_expression env x in
+      match v.e with
+      (* an ellipsis in a pattern stands for fields, not for a value *)
+      | G.Ellipsis _ -> v
+      | _ ->
+          (* a positional field has the next integer key, from 1:
+           * { a, b } is { [1] = a, [2] = b } *)
+          incr positions;
+          let key = G.L (G.Int (Parsed_int.of_int !positions)) |> G.e in
+          G.keyval key (G.fake "=") v)
 
 and map_field_sequence (env : env) ((v1, v2, v3) : CST.field_sequence) :
     G.expr list =
-  let v1 = map_field env v1 in
+  let positions = ref 0 in
+  let v1 = map_field env positions v1 in
   let v2 =
     List_.map
       (fun (v1, v2) ->
         let _v1 = map_field_sep env v1 in
-        let v2 = map_field env v2 in
+        let v2 = map_field env positions v2 in
         v2)
       v2
   in

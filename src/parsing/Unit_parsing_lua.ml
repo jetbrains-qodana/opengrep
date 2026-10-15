@@ -298,29 +298,45 @@ let tests =
                  "a, b = ...";
                ]));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
-          match (first_statement "local t = { x = 1, [\"y\"] = 2, 3 }").s with
-          | G.DefStmt
-              ( _,
-                G.VarDef
-                  {
-                    vinit = Some { e = G.Container (G.Dict, (_, fields, _)); _ };
-                    _;
-                  } ) ->
-              let field (e : G.expr) =
-                match e.e with
-                | G.Container
-                    ( G.Tuple,
-                      (_, [ { e = G.L (G.String (_, (k, _), _)); _ }; _ ], _) )
-                  ->
-                    k ^ " = value"
-                | G.L _ -> "positional"
-                | _ -> "?"
-              in
-              Alcotest.(check (list string))
-                "fields"
-                [ "x = value"; "y = value"; "positional" ]
-                (List.map field fields)
-          | _ -> Alcotest.fail "expected a table constructor");
+          let fields (any : G.any) =
+            let fields = ref [] in
+            let visitor =
+              object
+                inherit [_] G.iter as super
+
+                method! visit_expr env e =
+                  (match e.e with
+                  | G.Container (G.Dict, (_, xs, _)) -> fields := xs
+                  | _ -> ());
+                  super#visit_expr env e
+              end
+            in
+            visitor#visit_any () any;
+            let field (e : G.expr) =
+              match e.e with
+              | G.Container
+                  ( G.Tuple,
+                    (_, [ { e = G.L (G.String (_, (k, _), _)); _ }; _ ], _) ) ->
+                  k ^ " = value"
+              | G.Container (G.Tuple, (_, [ { e = G.L (G.Int i); _ }; _ ], _))
+                ->
+                  (match Parsed_int.to_int_opt i with
+                  | Some i -> string_of_int i
+                  | None -> "?")
+                  ^ " = value"
+              | G.Ellipsis _ -> "..."
+              | _ -> "?"
+            in
+            List.map field !fields
+          in
+          (* a positional field has the next integer key, from 1 *)
+          Alcotest.(check (list string))
+            "program"
+            [ "x = value"; "1 = value"; "y = value"; "2 = value" ]
+            (fields (G.Pr (parse_program "t = { x = 1, 2, [\"y\"] = 3, 4 }")));
+          Alcotest.(check (list string))
+            "pattern" [ "..."; "1 = value" ]
+            (fields (parse_pattern "{ ..., $X }")));
       t "~ is a bitwise xor and ^ a power" (fun () ->
           match
             binary_operators
