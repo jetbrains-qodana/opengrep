@@ -402,7 +402,7 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
   | `Un_oper (v1, v2) ->
       let op, tok =
         match v1 with
-        | `Not tok -> (G.Plus, tok) (* "not" *)
+        | `Not tok -> (G.Not, tok) (* "not" *)
         | `HASH tok -> (G.Length, tok) (* "#" *)
         | `DASH tok -> (G.Minus, tok) (* "-" *)
         | `TILDE tok -> (G.BitNot, tok)
