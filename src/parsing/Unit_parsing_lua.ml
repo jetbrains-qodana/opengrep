@@ -102,6 +102,17 @@ let first_statement code =
   | stmt :: _ -> stmt
   | [] -> Alcotest.fail "no statement"
 
+(* "T.m" for the name T.m, "?" for a name that is not made of identifiers *)
+let name_text (name : G.name) =
+  match name with
+  | G.Id ((s, _), _) -> s
+  | G.IdQualified
+      { name_last = last, _; name_middle = Some (G.QDots qualifiers); _ } ->
+      String.concat "."
+        (List.map (fun ((s, _), _) -> s) qualifiers @ [ fst last ])
+  | G.IdQualified { name_last = last, _; name_middle = None; _ } -> fst last
+  | G.IdQualified _ -> "?"
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -160,4 +171,9 @@ let tests =
           | G.ExprStmt ({ e = G.Assign (target, _, _); _ }, _) ->
               Alcotest.(check string) "store" "(t.a).b" (field_access target)
           | _ -> Alcotest.fail "expected an assignment");
+      t "a method definition keeps the method name" (fun () ->
+          match (first_statement "function T:m(x) return x end").s with
+          | G.DefStmt ({ name = G.EN name; _ }, G.FuncDef _) ->
+              Alcotest.(check string) "name" "T.m" (name_text name)
+          | _ -> Alcotest.fail "expected a function definition");
     ]

@@ -206,10 +206,14 @@ let map_function_name_field (env : env) ((v1, v2) : CST.function_name_field)
 
 let map_function_name (env : env) ((v1, v2) : CST.function_name) : G.name =
   match v1 with
-  | `Id tok ->
+  | `Id tok -> (
       let ident = identifier env tok in
       (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
-      H2.name_of_id ident
+      match v2 with
+      | Some (colon, colon_ident) ->
+          let _colon = token env colon (* ":" *) in
+          H2.name_of_ids [ ident; identifier env colon_ident ]
+      | None -> H2.name_of_id ident)
   | `Func_name_field x -> map_function_name_field env x v2
 
 let rec map_expression_list (env : env)
