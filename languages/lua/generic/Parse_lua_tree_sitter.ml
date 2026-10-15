@@ -770,16 +770,7 @@ and map_variable_declarator_expr (env : env) (x : CST.variable_declarator) :
       let v1 = map_prefix env v1 in
       let v2 = token env v2 (* "." *) in
       let v3 = identifier env v3 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-      let qual = G.QExpr (v1, v2) in
-      let qualified_info =
-        {
-          G.name_last = (v3, None);
-          name_middle = Some qual;
-          name_top = None;
-          name_info = G.empty_id_info ();
-        }
-      in
-      G.N (G.IdQualified qualified_info) |> G.e
+      G.DotAccess (v1, v2, G.FN (G.Id (v3, G.empty_id_info ()))) |> G.e
 
 and map_variable_declarator (env : env) (x : CST.variable_declarator) : G.expr =
   match x with
@@ -797,9 +788,7 @@ and map_variable_declarator (env : env) (x : CST.variable_declarator) : G.expr =
       let prefix = map_prefix env v1 in
       let dot = token env v2 (* "." *) in
       let ident = identifier env v3 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-      G.DotAccess
-        (G.N (G.Id (ident, G.empty_id_info ())) |> G.e, dot, G.FDynamic prefix)
-      |> G.e
+      G.DotAccess (prefix, dot, G.FN (G.Id (ident, G.empty_id_info ()))) |> G.e
 
 let map_program (env : env) ((v1, v2) : CST.program) : G.program =
   map_statements_and_return env (v1, v2)

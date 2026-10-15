@@ -87,6 +87,21 @@ let string_values (any : G.any) =
   visitor#visit_any () any;
   List.rev !values
 
+(* "t.x" for t.x, "(t.a).b" for t.a.b, "?" for any other shape *)
+let rec field_access (e : G.expr) =
+  match e.e with
+  | G.N (G.Id ((name, _), _)) -> name
+  | G.DotAccess (obj, _, G.FN (G.Id ((field, _), _))) -> (
+      match obj.e with
+      | G.DotAccess _ -> Printf.sprintf "(%s).%s" (field_access obj) field
+      | _ -> Printf.sprintf "%s.%s" (field_access obj) field)
+  | _ -> "?"
+
+let first_statement code =
+  match parse_program code with
+  | stmt :: _ -> stmt
+  | [] -> Alcotest.fail "no statement"
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -135,4 +150,14 @@ let tests =
             "values"
             [ "x"; "x"; "x"; "x"; "x" ]
             (string_values (G.Pr ast)));
+      t "a field read is a field access" (fun () ->
+          match (first_statement "local a = t.a.b").s with
+          | G.DefStmt (_, G.VarDef { vinit = Some e; _ }) ->
+              Alcotest.(check string) "read" "(t.a).b" (field_access e)
+          | _ -> Alcotest.fail "expected a local definition");
+      t "a field store is a field access" (fun () ->
+          match (first_statement "t.a.b = 1").s with
+          | G.ExprStmt ({ e = G.Assign (target, _, _); _ }, _) ->
+              Alcotest.(check string) "store" "(t.a).b" (field_access target)
+          | _ -> Alcotest.fail "expected an assignment");
     ]
