@@ -187,4 +187,18 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "repeat until loops while the condition is false" (fun () ->
+          match (first_statement "repeat x() until c").s with
+          | G.DoWhile
+              ( _,
+                _,
+                {
+                  e =
+                    G.Call
+                      ( { e = G.IdSpecial (G.Op G.Not, _); _ },
+                        (_, [ G.Arg { e = G.N (G.Id (("c", _), _)); _ } ], _) );
+                  _;
+                } ) ->
+              ()
+          | _ -> Alcotest.fail "expected a do-while on not c");
     ]

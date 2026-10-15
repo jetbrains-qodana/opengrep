@@ -709,7 +709,10 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
       (* "repeat" *)
       let block = map_do_block env (v1, v2, v3, v4) in
       let v5 = map_expression env v5 in
-      [ G.DoWhile (t, block, v5) |> G.s ]
+      (* the loop goes on while the until condition is false *)
+      let not_ = G.IdSpecial (G.Op G.Not, token env v4 (* "until" *)) |> G.e in
+      let cond = G.Call (not_, fb [ G.Arg v5 ]) |> G.e in
+      [ G.DoWhile (t, block, cond) |> G.s ]
   | `For_stmt (v1, v2, v3, v4, v5, v6) ->
       let v1 = token env v1 (* "for" *) in
       let v2 = map_loop_expression env v2 in
