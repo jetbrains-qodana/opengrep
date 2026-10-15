@@ -737,6 +737,15 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
   | `Func_stmt (v1, v2, v3) ->
       let name = map_function_name env v2 in
       let v3 = map_function_body env v3 v1 in
+      (* function T:m(x) is function T.m(self, x) *)
+      let v3 =
+        match v2 with
+        | _, Some (colon, _) ->
+            let self = G.Param (G.param_of_id ("self", token env colon)) in
+            let lp, params, rp = v3.fparams in
+            { v3 with fparams = (lp, self :: params, rp) }
+        | _, None -> v3
+      in
       let ent = { G.name = G.EN name; G.attrs = []; G.tparams = None } in
       [ G.DefStmt (ent, G.FuncDef v3) |> G.s ]
   | `Local_func_stmt (v1, v2, v3, v4) ->

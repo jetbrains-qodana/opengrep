@@ -176,4 +176,15 @@ let tests =
           | G.DefStmt ({ name = G.EN name; _ }, G.FuncDef _) ->
               Alcotest.(check string) "name" "T.m" (name_text name)
           | _ -> Alcotest.fail "expected a function definition");
+      t "a method definition takes self as its first parameter" (fun () ->
+          match
+            parameters_of_first_function
+              (G.Pr (parse_program "function T:m(x) return x end"))
+          with
+          | [
+           G.Param { pname = Some ("self", _); _ };
+           G.Param { pname = Some ("x", _); _ };
+          ] ->
+              ()
+          | _ -> Alcotest.fail "expected the parameters self and x");
     ]
