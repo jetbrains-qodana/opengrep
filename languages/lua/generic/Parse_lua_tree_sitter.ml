@@ -31,7 +31,8 @@ module Log = Log_parser_lua.Log
 (*****************************************************************************)
 (* Helpers *)
 (*****************************************************************************)
-type env = unit H.env
+type mode = Pattern | Target
+type env = mode H.env
 
 let token = H.token
 let str = H.str
@@ -114,6 +115,12 @@ let map_field_sep (env : env) (x : CST.field_sep) =
 (* let map_string_ (env : env) (tok : CST.string_) =
  *   token env tok (\* string *\) *)
 
+(* "..." is a vararg parameter in a program but an ellipsis in a pattern *)
+let vararg_parameter (env : env) tok =
+  match env.extra with
+  | Pattern -> G.ParamEllipsis tok
+  | Target -> G.ParamRest (tok, G.param_of_id ("...", tok))
+
 let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
   let lp = token env v1 (* "(" *) in
   let params =
@@ -123,7 +130,7 @@ let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
           match v1 with
           | `Self tok ->
               G.Param (G.param_of_id (identifier env tok)) (* "self" *)
-          | `Spread tok -> G.ParamEllipsis (token env tok) (* "..." *)
+          | `Spread tok -> vararg_parameter env (token env tok) (* "..." *)
           | `Id tok -> G.Param (G.param_of_id (identifier env tok))
           (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
         in
@@ -140,7 +147,7 @@ let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
           | Some (v1, v2) ->
               let _v1 = token env v1 (* "," *) in
               let v2 = token env v2 (* "..." *) in
-              Some (G.ParamEllipsis v2)
+              Some (vararg_parameter env v2)
           | None -> None
         in
         deoptionalize (List_.flatten [ [ Some v1 ]; v2; [ v3 ] ])
@@ -795,7 +802,7 @@ let parse file =
   H.wrap_parser
     (fun () -> Tree_sitter_lua.Parse.file !!file)
     (fun cst _extras ->
-      let env = { H.file; conv = H.line_col_to_pos file; extra = () } in
+      let env = { H.file; conv = H.line_col_to_pos file; extra = Target } in
 
       map_program env cst)
 
@@ -805,6 +812,6 @@ let parse_pattern str =
     (fun () -> Tree_sitter_lua.Parse.string str)
     (fun cst _extras ->
       let file = Fpath.v "<pattern>" in
-      let env = { H.file; conv = H.line_col_to_pos_pattern str; extra = () } in
+      let env = { H.file; conv = H.line_col_to_pos_pattern str; extra = Pattern } in
       let xs = map_program env cst in
       G.Ss xs)
