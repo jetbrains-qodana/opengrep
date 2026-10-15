@@ -37,6 +37,23 @@ let parameters_of_first_function (any : G.any) =
   | Some params -> params
   | None -> Alcotest.fail "no function definition"
 
+let if_conditions (any : G.any) =
+  let conditions = ref [] in
+  let visitor =
+    object
+      inherit [_] G.iter as super
+
+      method! visit_condition env cond =
+        (match cond with
+        | G.Cond { e = G.N (G.Id ((name, _), _)); _ } ->
+            conditions := name :: !conditions
+        | _ -> ());
+        super#visit_condition env cond
+    end
+  in
+  visitor#visit_any () any;
+  List.rev !conditions
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -57,4 +74,12 @@ let tests =
           with
           | [ G.ParamEllipsis _ ] -> ()
           | _ -> Alcotest.fail "expected an ellipsis parameter");
+      t "elseif branches keep their order" (fun () ->
+          let ast =
+            parse_program
+              "if a then x() elseif b then x() elseif c then x() elseif d then \
+               x() end"
+          in
+          Alcotest.(check (list string))
+            "conditions" [ "a"; "b"; "c"; "d" ] (if_conditions (G.Pr ast)));
     ]

@@ -659,9 +659,16 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           (Tok.unsafe_fake_bracket (map_statements_and_return env (v4, v5)))
         |> G.s
       in
+      let v7 =
+        match v7 with
+        | Some x -> Some (map_else_ env x)
+        | None -> None
+      in
+      (* each elseif is the else branch of the one before it, the else is the
+       * else branch of the last one *)
       let elseifs =
-        List.fold_left
-          (fun (acc : G.stmt option) ((v1, v2, v3, v4, v5) : CST.elseif) ->
+        List.fold_right
+          (fun ((v1, v2, v3, v4, v5) : CST.elseif) (acc : G.stmt option) ->
             let v1 = token env v1 (* "elseif" *) in
             let v2 = map_expression env v2 in
             let _v3 = token env v3 (* "then" *) in
@@ -672,20 +679,10 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
               |> G.s
             in
             Some (G.If (v1, G.Cond v2, stmt_list, acc) |> G.s))
-          None v6
-      in
-      let v7 =
-        match v7 with
-        | Some x -> Some (map_else_ env x)
-        | None -> None
+          v6 v7
       in
       let _v8 = token env v8 (* "end" *) in
-      let ifstmt =
-        match v7 with
-        | Some else_ -> G.If (v1, G.Cond v2, stmt_list, Some else_)
-        | None -> G.If (v1, G.Cond v2, stmt_list, elseifs)
-      in
-      [ ifstmt |> G.s ]
+      [ G.If (v1, G.Cond v2, stmt_list, elseifs) |> G.s ]
   | `While_stmt (v1, v2, v3, v4, v5, v6) ->
       let v1 = token env v1 (* "while" *) in
       let v2 = map_expression env v2 in
