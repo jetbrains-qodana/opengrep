@@ -237,4 +237,28 @@ let tests =
             "assignments"
             [ "x,y = y,x"; "x,y = call"; "x = y" ]
             (List.map shape [ "x, y = y, x"; "x, y = f()"; "x = y" ]));
+      t "a table constructor is a dictionary of key-value pairs" (fun () ->
+          match (first_statement "local t = { x = 1, [\"y\"] = 2, 3 }").s with
+          | G.DefStmt
+              ( _,
+                G.VarDef
+                  {
+                    vinit = Some { e = G.Container (G.Dict, (_, fields, _)); _ };
+                    _;
+                  } ) ->
+              let field (e : G.expr) =
+                match e.e with
+                | G.Container
+                    ( G.Tuple,
+                      (_, [ { e = G.L (G.String (_, (k, _), _)); _ }; _ ], _) )
+                  ->
+                    k ^ " = value"
+                | G.L _ -> "positional"
+                | _ -> "?"
+              in
+              Alcotest.(check (list string))
+                "fields"
+                [ "x = value"; "y = value"; "positional" ]
+                (List.map field fields)
+          | _ -> Alcotest.fail "expected a table constructor");
     ]

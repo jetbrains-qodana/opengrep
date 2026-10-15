@@ -431,28 +431,23 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
 
 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
 and map_field (env : env) (x : CST.field) : G.expr =
-  let ent, tok, def =
-    match x with
-    | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
-        let _v1 = token env v1 (* "[" *) in
-        let v2 = map_expression env v2 in
-        let v3 = token env v3 (* "]" *) in
-        let _v4 = token env v4 (* "=" *) in
-        let v5 = map_expression env v5 in
-        (v2, v3, v5)
-    | `Id_EQ_exp (v1, v2, v3) ->
-        let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-        let v2 = token env v2 (* "=" *) in
-        let v3 = map_expression env v3 in
-        (G.N (G.Id (v1, G.empty_id_info ())) |> G.e, v2, v3)
-    | `Exp x ->
-        let expr = map_expression env x in
-        let ident =
-          G.IdSpecial (G.NextArrayIndex, G.fake "next_array_index") |> G.e
-        in
-        (ident, G.fake "=", expr)
-  in
-  G.Assign (ent, tok, def) |> G.e
+  (* a table constructor is a dictionary, as in Python: a keyed field is a
+   * key-value pair and a positional field is an element *)
+  match x with
+  | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
+      let _v1 = token env v1 (* "[" *) in
+      let v2 = map_expression env v2 in
+      let _v3 = token env v3 (* "]" *) in
+      let v4 = token env v4 (* "=" *) in
+      let v5 = map_expression env v5 in
+      G.keyval v2 v4 v5
+  | `Id_EQ_exp (v1, v2, v3) ->
+      let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
+      let v2 = token env v2 (* "=" *) in
+      let v3 = map_expression env v3 in
+      (* x = v is ["x"] = v *)
+      G.keyval (G.L (G.String (fb v1)) |> G.e) v2 v3
+  | `Exp x -> map_expression env x
 
 and map_field_sequence (env : env) ((v1, v2, v3) : CST.field_sequence) :
     G.expr list =
