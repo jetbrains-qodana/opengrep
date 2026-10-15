@@ -68,16 +68,6 @@ let mk_vars xs ys =
   in
   aux xs ys
 
-let mk_assigns xs ys equal =
-  let rec aux xs ys =
-    match (xs, ys) with
-    | [], [] -> []
-    | _x :: _xs, [] -> []
-    | x :: xs, y :: ys -> (G.Assign (x, equal, y) |> G.e) :: aux xs ys
-    | [], _y :: _ys -> []
-  in
-  aux xs ys
-
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 
 (* pattern [a-zA-Z_]\w* *)
@@ -645,10 +635,15 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
             v2)
           v5
       in
-      let assigns =
-        mk_assigns (ident_first :: ident_rest) (expr_first :: expr_rest) equal
+      (* several targets or values are assigned as tuples, as in Python:
+       * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f() *)
+      let side = function
+        | [ x ] -> x
+        | xs -> G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e
       in
-      List_.map (fun x -> G.ExprStmt (x, G.sc) |> G.s) assigns
+      let lhs = side (ident_first :: ident_rest) in
+      let rhs = side (expr_first :: expr_rest) in
+      [ G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s ]
   | `Local_var_decl (v1, v2, v3) ->
       let local = token env v1 (* "local" *) in
       let entities = map_local_variable_declarator env v2 local in

@@ -218,4 +218,23 @@ let tests =
                 _ ) ->
               ()
           | _ -> Alcotest.fail "expected i over Range(a, b, c)");
+      t "a multiple assignment assigns tuples" (fun () ->
+          let shape code =
+            match (first_statement code).s with
+            | G.ExprStmt ({ e = G.Assign (lhs, _, rhs); _ }, _) -> (
+                let names (e : G.expr) =
+                  match e.e with
+                  | G.Container (G.Tuple, (_, xs, _)) ->
+                      String.concat "," (List.map field_access xs)
+                  | _ -> field_access e
+                in
+                match rhs.e with
+                | G.Call _ -> names lhs ^ " = call"
+                | _ -> names lhs ^ " = " ^ names rhs)
+            | _ -> "?"
+          in
+          Alcotest.(check (list string))
+            "assignments"
+            [ "x,y = y,x"; "x,y = call"; "x = y" ]
+            (List.map shape [ "x, y = y, x"; "x, y = f()"; "x = y" ]));
     ]

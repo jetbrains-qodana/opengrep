@@ -12,8 +12,8 @@ qux = foo:bar() == foo:bar()
 
 local a, b, c = 1, 2, 3
 
--- ERROR: match
+-- a multiple assignment is an assignment of tuples, as in Python, so it is
+-- not an instance of $X = $X
 a, b, c = a
 
--- ERROR: match
 a = a, b, c
