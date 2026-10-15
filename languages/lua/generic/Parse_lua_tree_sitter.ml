@@ -631,13 +631,17 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           v5
       in
       (* several targets or values are assigned as tuples, as in Python:
-       * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f() *)
-      let side = function
-        | [ x ] -> x
-        | xs -> G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e
+       * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
+       * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
+       * first value and not a tuple *)
+      let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
+      let targets = ident_first :: ident_rest in
+      let lhs, rhs =
+        match (targets, expr_rest) with
+        | [ x ], [] -> (x, expr_first)
+        | _, [] -> (tuple targets, expr_first)
+        | _, _ -> (tuple targets, tuple (expr_first :: expr_rest))
       in
-      let lhs = side (ident_first :: ident_rest) in
-      let rhs = side (expr_first :: expr_rest) in
       [ G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s ]
   | `Local_var_decl (v1, v2, v3) ->
       let local = token env v1 (* "local" *) in

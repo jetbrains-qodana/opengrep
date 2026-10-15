@@ -225,7 +225,7 @@ let tests =
                 let names (e : G.expr) =
                   match e.e with
                   | G.Container (G.Tuple, (_, xs, _)) ->
-                      String.concat "," (List.map field_access xs)
+                      "(" ^ String.concat "," (List.map field_access xs) ^ ")"
                   | _ -> field_access e
                 in
                 match rhs.e with
@@ -235,8 +235,9 @@ let tests =
           in
           Alcotest.(check (list string))
             "assignments"
-            [ "x,y = y,x"; "x,y = call"; "x = y" ]
-            (List.map shape [ "x, y = y, x"; "x, y = f()"; "x = y" ]));
+            [ "(x,y) = (y,x)"; "(x,y) = call"; "x = y"; "(a) = (a,b,c)" ]
+            (List.map shape
+               [ "x, y = y, x"; "x, y = f()"; "x = y"; "a = a, b, c" ]));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           match (first_statement "local t = { x = 1, [\"y\"] = 2, 3 }").s with
           | G.DefStmt
