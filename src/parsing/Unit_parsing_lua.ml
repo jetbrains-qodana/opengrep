@@ -71,6 +71,22 @@ let unary_operators (any : G.any) =
   visitor#visit_any () any;
   List.rev !operators
 
+let string_values (any : G.any) =
+  let values = ref [] in
+  let visitor =
+    object
+      inherit [_] G.iter as super
+
+      method! visit_literal env lit =
+        (match lit with
+        | G.String (_, (value, _), _) -> values := value :: !values
+        | _ -> ());
+        super#visit_literal env lit
+    end
+  in
+  visitor#visit_any () any;
+  List.rev !values
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -105,4 +121,18 @@ let tests =
           | ops ->
               Alcotest.failf "expected Not, got %s"
                 (String.concat ", " (List.map G.show_operator ops)));
+      t "strings do not keep their delimiters" (fun () ->
+          let ast =
+            parse_program
+              "local a = \"x\"\n\
+               local b = 'x'\n\
+               local c = [[x]]\n\
+               local d = [==[x]==]\n\
+               local e = [[\n\
+               x]]\n"
+          in
+          Alcotest.(check (list string))
+            "values"
+            [ "x"; "x"; "x"; "x"; "x" ]
+            (string_values (G.Pr ast)));
     ]

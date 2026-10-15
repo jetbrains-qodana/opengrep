@@ -85,6 +85,16 @@ let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 let ident (env : env) (tok : CST.identifier) =
   G.Id (identifier env tok, G.empty_id_info ())
 
+(* the content of a long string such as [[x]] or [==[x]==]; a newline right
+ * after the opening bracket is not part of the string *)
+let long_string_content s =
+  let level = String.index_from s 1 '[' - 1 in
+  let delimiter = level + 2 in
+  let content = String.sub s delimiter (String.length s - (2 * delimiter)) in
+  if String.starts_with ~prefix:"\r\n" content then Str.string_after content 2
+  else if String.starts_with ~prefix:"\n" content then Str.string_after content 1
+  else content
+
 let string_literal (env : env) (tok : CST.identifier) =
   let s, t = str env tok in
   let s =
@@ -93,6 +103,8 @@ let string_literal (env : env) (tok : CST.identifier) =
      *)
     match s with
     | s when s =~ "^\"\\(.*\\)\"$" -> Common.matched1 s
+    | s when s =~ "^'\\(.*\\)'$" -> Common.matched1 s
+    | s when s =~ "^\\[=*\\[" -> long_string_content s
     | _ ->
         Log.warn (fun m -> m "weird string literal: %s" s);
         s
