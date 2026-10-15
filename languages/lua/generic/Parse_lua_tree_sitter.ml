@@ -643,11 +643,37 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
        * first value and not a tuple *)
       let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
       let targets = ident_first :: ident_rest in
+      let values = expr_first :: expr_rest in
+      (* a call or ... gives all its values, as do $X and ... in a pattern;
+       * any other expression gives one value *)
+      let multiple_values (e : G.expr) =
+        match e.e with
+        | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
+        | G.Call _
+        | G.Ellipsis _
+        | G.N (G.Id (("...", _), _)) ->
+            true
+        | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
+        | _ -> false
+      in
+      (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
+      let values =
+        let missing = List.length targets - List.length values in
+        let last_gives_all =
+          match List.rev values with
+          | last :: _ -> multiple_values last
+          | [] -> false
+        in
+        if missing > 0 && not last_gives_all then
+          values
+          @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+        else values
+      in
       let lhs, rhs =
-        match (targets, expr_rest) with
-        | [ x ], [] -> (x, expr_first)
-        | _, [] -> (tuple targets, expr_first)
-        | _, _ -> (tuple targets, tuple (expr_first :: expr_rest))
+        match (targets, values) with
+        | [ x ], [ v ] -> (x, v)
+        | _, [ v ] -> (tuple targets, v)
+        | _, _ -> (tuple targets, tuple values)
       in
       [ G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s ]
   | `Local_var_decl (v1, v2, v3) ->

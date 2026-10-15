@@ -255,6 +255,39 @@ let tests =
             [ "(x,y) = (y,x)"; "(x,y) = call"; "x = y"; "(a) = (a,b,c)" ]
             (List.map shape
                [ "x, y = y, x"; "x, y = f()"; "x = y"; "a = a, b, c" ]));
+      t "missing values of a multiple assignment are nil" (fun () ->
+          let value (e : G.expr) =
+            match e.e with
+            | G.L (G.Null _) -> "nil"
+            | G.Call _ -> "call"
+            | _ -> field_access e
+          in
+          let shape code =
+            match (first_statement code).s with
+            | G.ExprStmt
+                ( {
+                    e = G.Assign ({ e = G.Container (G.Tuple, _); _ }, _, rhs);
+                    _;
+                  },
+                  _ ) -> (
+                match rhs.e with
+                | G.Container (G.Tuple, (_, xs, _)) ->
+                    "(" ^ String.concat "," (List.map value xs) ^ ")"
+                | _ -> value rhs)
+            | _ -> "?"
+          in
+          Alcotest.(check (list string))
+            "values"
+            [ "(t,nil)"; "(x,y,nil)"; "call"; "(x,f.g,nil)"; "..." ]
+            (List.map shape
+               [
+                 "a, b = t";
+                 "a, b, c = x, y";
+                 "a, b = f()";
+                 "a, b, c = x, f.g";
+                 (* the main chunk of Lua takes varargs *)
+                 "a, b = ...";
+               ]));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           match (first_statement "local t = { x = 1, [\"y\"] = 2, 3 }").s with
           | G.DefStmt
