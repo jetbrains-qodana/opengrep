@@ -2899,14 +2899,87 @@ and m_finally a b =
 
 and m_case_and_body a b =
   match (a, b) with
+  (* A case that is only `...` stands for any number of cases, of any
+   * kind, as `...` does in other lists. A `default` (or `else`) branch is
+   * not a case: only a pattern branch with a `default` matches it. *)
   | CasesAndBody (a1, a2), CasesAndBody (b1, b2) ->
-      (m_list m_case) a1 b1 >>= fun () -> m_stmt a2 b2
+      let is_default = function
+        | G.Default _ -> true
+        | _ -> false
+      in
+      if List.exists is_default b1 && not (List.exists is_default a1) then
+        fail ()
+      else
+        let as_list () =
+          m_list_with_dots ~less_is_ok:false m_case
+            (function
+              | G.CaseEqualExpr (_, { e = G.Ellipsis _; _ })
+              | G.Case (_, G.PatEllipsis _) ->
+                  true
+              | _ -> false)
+            a1 b1
+        in
+        (match a1 with
+        | [ c ] -> (
+            match deep_ellipsis_case c with
+            (* A deep ellipsis `<... e ...>` as the whole case list: [e]
+             * matches an expression of any of the cases, at any depth. *)
+            | Some e ->
+                let no_match _ _ = fail () in
+                m_deep m_expr_deep no_match SubAST_generic.subexprs_of_cases e b1
+            | None -> as_list ())
+        | _ -> as_list ())
+        >>= fun () -> m_stmt a2 b2
   | CaseEllipsis _, CasesAndBody _ -> return ()
   | CasesAndBody _, _
   | CaseEllipsis _, _ ->
       fail ()
 
+(* The expression of a case written as a value: a [CaseEqualExpr], or a
+ * [Case] whose pattern holds a value (Dart `ExprToPattern`, Ruby `expr`). *)
+and case_value (c : G.case) : G.expr option =
+  match c with
+  | G.CaseEqualExpr (_, e)
+  | G.Case (_, G.OtherPat ((("ExprToPattern" | "expr"), _), [ G.E e ])) ->
+      Some e
+  | _ -> None
+
+(* A case whose expression is only a deep ellipsis `<... e ...>`: [e]. *)
+and deep_ellipsis_case (c : G.case) : G.expr option =
+  match case_value c with
+  | Some { e = G.DeepEllipsis (_, e, _); _ } -> Some e
+  | _ -> None
+
+(* A case whose expression or pattern is only a metavariable. *)
+and metavariable_case (c : G.case) : (G.ident * G.id_info) option =
+  match (c, case_value c) with
+  | _, Some { e = G.N (G.Id (((str, _) as id), id_info)); _ }
+    when Mvar.is_metavar_name str ->
+      Some (id, id_info)
+  | G.Case (_, G.PatId (((str, _) as id), id_info)), _
+    when Mvar.is_metavar_name str ->
+      Some (id, id_info)
+  | _ -> None
+
 and m_case a b =
+  match (deep_ellipsis_case a, metavariable_case a) with
+  (* As for a deep ellipsis as a statement: [e] matches an expression of
+   * the case, at any depth. *)
+  | Some e, _ ->
+      let no_match _ _ = fail () in
+      m_deep m_expr_deep no_match SubAST_generic.subexprs_of_case e b
+  | None, Some (id, id_info) -> m_metavariable_case id id_info b
+  | None, None -> m_case_same_kind a b
+
+(* A metavariable case matches any case: the value of one written as a
+ * value ([case_value]), else its pattern. *)
+and m_metavariable_case (id : G.ident) (id_info : G.id_info) b =
+  match (case_value b, b) with
+  | Some e, _ -> m_expr (G.N (G.Id (id, id_info)) |> G.e) e
+  | None, B.Case (_, b1) -> m_pattern (G.PatId (id, id_info)) b1
+  | None, (B.CaseEqualExpr _ | B.Default _ | B.OtherCase _) -> fail ()
+
+and m_case_same_kind a b =
   match (a, b) with
   | G.Case (a0, a1), B.Case (b0, b1) ->
       m_tok a0 b0 >>= fun () -> m_pattern a1 b1
