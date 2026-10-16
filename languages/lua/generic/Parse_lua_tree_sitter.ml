@@ -31,7 +31,8 @@ module Log = Log_parser_lua.Log
 (*****************************************************************************)
 (* Helpers *)
 (*****************************************************************************)
-type env = unit H.env
+type mode = Pattern | Target
+type env = mode H.env
 
 let token = H.token
 let str = H.str
@@ -67,22 +68,25 @@ let mk_vars xs ys =
   in
   aux xs ys
 
-let mk_assigns xs ys equal =
-  let rec aux xs ys =
-    match (xs, ys) with
-    | [], [] -> []
-    | _x :: _xs, [] -> []
-    | x :: xs, y :: ys -> (G.Assign (x, equal, y) |> G.e) :: aux xs ys
-    | [], _y :: _ys -> []
-  in
-  aux xs ys
-
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 
 (* pattern [a-zA-Z_]\w* *)
 
 let ident (env : env) (tok : CST.identifier) =
   G.Id (identifier env tok, G.empty_id_info ())
+
+(* the content of a long string such as [[x]] or [==[x]==]; a newline right
+ * after the opening bracket is not part of the string, and each line break,
+ * \r\n, \n\r, \n or \r, is a \n *)
+let long_string_content s =
+  let level = String.index_from s 1 '[' - 1 in
+  let delimiter = level + 2 in
+  let content = String.sub s delimiter (String.length s - (2 * delimiter)) in
+  let content =
+    Str.global_replace (Str.regexp "\r\n\\|\n\r\\|\r") "\n" content
+  in
+  if String.starts_with ~prefix:"\n" content then Str.string_after content 1
+  else content
 
 let string_literal (env : env) (tok : CST.identifier) =
   let s, t = str env tok in
@@ -92,6 +96,8 @@ let string_literal (env : env) (tok : CST.identifier) =
      *)
     match s with
     | s when s =~ "^\"\\(.*\\)\"$" -> Common.matched1 s
+    | s when s =~ "^'\\(.*\\)'$" -> Common.matched1 s
+    | s when s =~ "^\\[=*\\[" -> long_string_content s
     | _ ->
         Log.warn (fun m -> m "weird string literal: %s" s);
         s
@@ -114,6 +120,19 @@ let map_field_sep (env : env) (x : CST.field_sep) =
 (* let map_string_ (env : env) (tok : CST.string_) =
  *   token env tok (\* string *\) *)
 
+(* "..." is a vararg parameter in a program but an ellipsis in a pattern *)
+let vararg_parameter (env : env) tok =
+  match env.extra with
+  | Pattern -> G.ParamEllipsis tok
+  | Target -> G.ParamRest (tok, G.param_of_id ("...", tok))
+
+(* "..." is a reference to the vararg parameter in a program but an ellipsis in
+ * a pattern *)
+let vararg_expression (env : env) tok =
+  match env.extra with
+  | Pattern -> G.Ellipsis tok
+  | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
+
 let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
   let lp = token env v1 (* "(" *) in
   let params =
@@ -123,7 +142,7 @@ let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
           match v1 with
           | `Self tok ->
               G.Param (G.param_of_id (identifier env tok)) (* "self" *)
-          | `Spread tok -> G.ParamEllipsis (token env tok) (* "..." *)
+          | `Spread tok -> vararg_parameter env (token env tok) (* "..." *)
           | `Id tok -> G.Param (G.param_of_id (identifier env tok))
           (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
         in
@@ -140,7 +159,7 @@ let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
           | Some (v1, v2) ->
               let _v1 = token env v1 (* "," *) in
               let v2 = token env v2 (* "..." *) in
-              Some (G.ParamEllipsis v2)
+              Some (vararg_parameter env v2)
           | None -> None
         in
         deoptionalize (List_.flatten [ [ Some v1 ]; v2; [ v3 ] ])
@@ -187,10 +206,14 @@ let map_function_name_field (env : env) ((v1, v2) : CST.function_name_field)
 
 let map_function_name (env : env) ((v1, v2) : CST.function_name) : G.name =
   match v1 with
-  | `Id tok ->
+  | `Id tok -> (
       let ident = identifier env tok in
       (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
-      H2.name_of_id ident
+      match v2 with
+      | Some (colon, colon_ident) ->
+          let _colon = token env colon (* ":" *) in
+          H2.name_of_ids [ ident; identifier env colon_ident ]
+      | None -> H2.name_of_id ident)
   | `Func_name_field x -> map_function_name_field env x v2
 
 let rec map_expression_list (env : env)
@@ -282,7 +305,7 @@ and map_binary_operation (env : env) (x : CST.binary_operation) =
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "~" *) in
       let v3 = map_expression env v3 in
-      G.Call (G.IdSpecial (G.Op G.BitNot, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
+      G.Call (G.IdSpecial (G.Op G.BitXor, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
   | `Exp_AMP_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "&" *) in
@@ -338,7 +361,7 @@ and map_binary_operation (env : env) (x : CST.binary_operation) =
       let v1 = map_expression env v1 in
       let v2 = token env v2 (* "^" *) in
       let v3 = map_expression env v3 in
-      G.Call (G.IdSpecial (G.Op G.BitXor, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
+      G.Call (G.IdSpecial (G.Op G.Pow, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
 
 and map_statement_list (env : env) (x : CST.statement list) : G.stmt list =
   let v1 = List_.map (map_statement env) x in
@@ -380,7 +403,7 @@ and map_else_ (env : env) ((v1, v2, v3) : CST.else_) : G.stmt =
 and map_expression (env : env) (x : CST.expression) : G.expr =
   (match x with
   | `Next tok -> G.OtherExpr (("next", token env tok), [])
-  | `Spread tok -> G.Ellipsis (token env tok) (* "..." *)
+  | `Spread tok -> vararg_expression env (token env tok) (* "..." *)
   | `Prefix x ->
       let x = map_prefix env x in
       x.G.e
@@ -395,7 +418,7 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
   | `Un_oper (v1, v2) ->
       let op, tok =
         match v1 with
-        | `Not tok -> (G.Plus, tok) (* "not" *)
+        | `Not tok -> (G.Not, tok) (* "not" *)
         | `HASH tok -> (G.Length, tok) (* "#" *)
         | `DASH tok -> (G.Minus, tok) (* "-" *)
         | `TILDE tok -> (G.BitNot, tok)
@@ -417,38 +440,44 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
   |> G.e
 
 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *)
-and map_field (env : env) (x : CST.field) : G.expr =
-  let ent, tok, def =
-    match x with
-    | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
-        let _v1 = token env v1 (* "[" *) in
-        let v2 = map_expression env v2 in
-        let v3 = token env v3 (* "]" *) in
-        let _v4 = token env v4 (* "=" *) in
-        let v5 = map_expression env v5 in
-        (v2, v3, v5)
-    | `Id_EQ_exp (v1, v2, v3) ->
-        let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-        let v2 = token env v2 (* "=" *) in
-        let v3 = map_expression env v3 in
-        (G.N (G.Id (v1, G.empty_id_info ())) |> G.e, v2, v3)
-    | `Exp x ->
-        let expr = map_expression env x in
-        let ident =
-          G.IdSpecial (G.NextArrayIndex, G.fake "next_array_index") |> G.e
-        in
-        (ident, G.fake "=", expr)
-  in
-  G.Assign (ent, tok, def) |> G.e
+and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
+  (* a table constructor is a dictionary, as in Python: a field is a
+   * key-value pair *)
+  match x with
+  | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
+      let _v1 = token env v1 (* "[" *) in
+      let v2 = map_expression env v2 in
+      let _v3 = token env v3 (* "]" *) in
+      let v4 = token env v4 (* "=" *) in
+      let v5 = map_expression env v5 in
+      G.keyval v2 v4 v5
+  | `Id_EQ_exp (v1, v2, v3) ->
+      let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
+      let v2 = token env v2 (* "=" *) in
+      let v3 = map_expression env v3 in
+      (* x = v is ["x"] = v *)
+      G.keyval (G.L (G.String (fb v1)) |> G.e) v2 v3
+  | `Exp x -> (
+      let v = map_expression env x in
+      match v.e with
+      (* an ellipsis in a pattern stands for fields, not for a value *)
+      | G.Ellipsis _ -> v
+      | _ ->
+          (* a positional field has the next integer key, from 1:
+           * { a, b } is { [1] = a, [2] = b } *)
+          incr positions;
+          let key = G.L (G.Int (Parsed_int.of_int !positions)) |> G.e in
+          G.keyval key (G.fake "=") v)
 
 and map_field_sequence (env : env) ((v1, v2, v3) : CST.field_sequence) :
     G.expr list =
-  let v1 = map_field env v1 in
+  let positions = ref 0 in
+  let v1 = map_field env positions v1 in
   let v2 =
     List_.map
       (fun (v1, v2) ->
         let _v1 = map_field_sep env v1 in
-        let v2 = map_field env v2 in
+        let v2 = map_field env positions v2 in
         v2)
       v2
   in
@@ -546,21 +575,26 @@ and map_in_loop_expression (env : env)
 and map_loop_expression (env : env)
     ((v1, v2, v3, v4, v5, v6) : CST.loop_expression) =
   let v1 = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-  let _v2 = token env v2 (* "=" *) in
-  let _v3 = map_expression env v3 in
-  let var : G.variable_definition = G.empty_var in
-  let for_init_var = G.ForInitVar (G.basic_entity v1, var) in
-  let _v4 = token env v4 (* "," *) in
+  let v2 = token env v2 (* "=" *) in
+  let v3 = map_expression env v3 in
+  let v4 = token env v4 (* "," *) in
   let v5 = map_expression env v5 in
   let v6 =
     match v6 with
     | Some (v1, v2) ->
         let _v1 = token env v1 (* "," *) in
         let v2 = map_expression env v2 in
-        Some v2
-    | None -> None
+        [ v2 ]
+    | None -> []
   in
-  G.ForClassic ([ for_init_var ], Some v5, v6)
+  (* for i = start, limit, step iterates i over the range from start to
+   * limit, as the range loops of Rust *)
+  let range =
+    G.Call
+      (G.IdSpecial (G.Op G.Range, v4) |> G.e, fb (List_.map G.arg (v3 :: v5 :: v6)))
+    |> G.e
+  in
+  G.ForEach (G.PatId (v1, G.empty_id_info ()), v2, range)
 
 and map_global_variable (env : env) (x : CST.global_variable) : G.expr =
   match x with
@@ -617,10 +651,45 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
             v2)
           v5
       in
-      let assigns =
-        mk_assigns (ident_first :: ident_rest) (expr_first :: expr_rest) equal
+      (* several targets or values are assigned as tuples, as in Python:
+       * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
+       * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
+       * first value and not a tuple *)
+      let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
+      let targets = ident_first :: ident_rest in
+      let values = expr_first :: expr_rest in
+      (* a call or ... gives all its values, as do $X and ... in a pattern;
+       * any other expression gives one value *)
+      let multiple_values (e : G.expr) =
+        match e.e with
+        | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
+        | G.Call _
+        | G.Ellipsis _
+        | G.N (G.Id (("...", _), _)) ->
+            true
+        | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
+        | _ -> false
       in
-      List_.map (fun x -> G.ExprStmt (x, G.sc) |> G.s) assigns
+      (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
+      let values =
+        let missing = List.length targets - List.length values in
+        let last_gives_all =
+          match List.rev values with
+          | last :: _ -> multiple_values last
+          | [] -> false
+        in
+        if missing > 0 && not last_gives_all then
+          values
+          @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+        else values
+      in
+      let lhs, rhs =
+        match (targets, values) with
+        | [ x ], [ v ] -> (x, v)
+        | _, [ v ] -> (tuple targets, v)
+        | _, _ -> (tuple targets, tuple values)
+      in
+      [ G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s ]
   | `Local_var_decl (v1, v2, v3) ->
       let local = token env v1 (* "local" *) in
       let entities = map_local_variable_declarator env v2 local in
@@ -652,9 +721,16 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           (Tok.unsafe_fake_bracket (map_statements_and_return env (v4, v5)))
         |> G.s
       in
+      let v7 =
+        match v7 with
+        | Some x -> Some (map_else_ env x)
+        | None -> None
+      in
+      (* each elseif is the else branch of the one before it, the else is the
+       * else branch of the last one *)
       let elseifs =
-        List.fold_left
-          (fun (acc : G.stmt option) ((v1, v2, v3, v4, v5) : CST.elseif) ->
+        List.fold_right
+          (fun ((v1, v2, v3, v4, v5) : CST.elseif) (acc : G.stmt option) ->
             let v1 = token env v1 (* "elseif" *) in
             let v2 = map_expression env v2 in
             let _v3 = token env v3 (* "then" *) in
@@ -665,20 +741,10 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
               |> G.s
             in
             Some (G.If (v1, G.Cond v2, stmt_list, acc) |> G.s))
-          None v6
-      in
-      let v7 =
-        match v7 with
-        | Some x -> Some (map_else_ env x)
-        | None -> None
+          v6 v7
       in
       let _v8 = token env v8 (* "end" *) in
-      let ifstmt =
-        match v7 with
-        | Some else_ -> G.If (v1, G.Cond v2, stmt_list, Some else_)
-        | None -> G.If (v1, G.Cond v2, stmt_list, elseifs)
-      in
-      [ ifstmt |> G.s ]
+      [ G.If (v1, G.Cond v2, stmt_list, elseifs) |> G.s ]
   | `While_stmt (v1, v2, v3, v4, v5, v6) ->
       let v1 = token env v1 (* "while" *) in
       let v2 = map_expression env v2 in
@@ -689,7 +755,10 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
       (* "repeat" *)
       let block = map_do_block env (v1, v2, v3, v4) in
       let v5 = map_expression env v5 in
-      [ G.DoWhile (t, block, v5) |> G.s ]
+      (* the loop goes on while the until condition is false *)
+      let not_ = G.IdSpecial (G.Op G.Not, token env v4 (* "until" *)) |> G.e in
+      let cond = G.Call (not_, fb [ G.Arg v5 ]) |> G.e in
+      [ G.DoWhile (t, block, cond) |> G.s ]
   | `For_stmt (v1, v2, v3, v4, v5, v6) ->
       let v1 = token env v1 (* "for" *) in
       let v2 = map_loop_expression env v2 in
@@ -717,6 +786,15 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
   | `Func_stmt (v1, v2, v3) ->
       let name = map_function_name env v2 in
       let v3 = map_function_body env v3 v1 in
+      (* function T:m(x) is function T.m(self, x) *)
+      let v3 =
+        match v2 with
+        | _, Some (colon, _) ->
+            let self = G.Param (G.param_of_id ("self", token env colon)) in
+            let lp, params, rp = v3.fparams in
+            { v3 with fparams = (lp, self :: params, rp) }
+        | _, None -> v3
+      in
       let ent = { G.name = G.EN name; G.attrs = []; G.tparams = None } in
       [ G.DefStmt (ent, G.FuncDef v3) |> G.s ]
   | `Local_func_stmt (v1, v2, v3, v4) ->
@@ -754,16 +832,7 @@ and map_variable_declarator_expr (env : env) (x : CST.variable_declarator) :
       let v1 = map_prefix env v1 in
       let v2 = token env v2 (* "." *) in
       let v3 = identifier env v3 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-      let qual = G.QExpr (v1, v2) in
-      let qualified_info =
-        {
-          G.name_last = (v3, None);
-          name_middle = Some qual;
-          name_top = None;
-          name_info = G.empty_id_info ();
-        }
-      in
-      G.N (G.IdQualified qualified_info) |> G.e
+      G.DotAccess (v1, v2, G.FN (G.Id (v3, G.empty_id_info ()))) |> G.e
 
 and map_variable_declarator (env : env) (x : CST.variable_declarator) : G.expr =
   match x with
@@ -781,9 +850,7 @@ and map_variable_declarator (env : env) (x : CST.variable_declarator) : G.expr =
       let prefix = map_prefix env v1 in
       let dot = token env v2 (* "." *) in
       let ident = identifier env v3 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-      G.DotAccess
-        (G.N (G.Id (ident, G.empty_id_info ())) |> G.e, dot, G.FDynamic prefix)
-      |> G.e
+      G.DotAccess (prefix, dot, G.FN (G.Id (ident, G.empty_id_info ()))) |> G.e
 
 let map_program (env : env) ((v1, v2) : CST.program) : G.program =
   map_statements_and_return env (v1, v2)
@@ -795,16 +862,15 @@ let parse file =
   H.wrap_parser
     (fun () -> Tree_sitter_lua.Parse.file !!file)
     (fun cst _extras ->
-      let env = { H.file; conv = H.line_col_to_pos file; extra = () } in
+      let env = { H.file; conv = H.line_col_to_pos file; extra = Target } in
 
       map_program env cst)
 
-(* todo: special mode to convert Ellipsis in the right construct! *)
 let parse_pattern str =
   H.wrap_parser
     (fun () -> Tree_sitter_lua.Parse.string str)
     (fun cst _extras ->
       let file = Fpath.v "<pattern>" in
-      let env = { H.file; conv = H.line_col_to_pos_pattern str; extra = () } in
+      let env = { H.file; conv = H.line_col_to_pos_pattern str; extra = Pattern } in
       let xs = map_program env cst in
       G.Ss xs)
