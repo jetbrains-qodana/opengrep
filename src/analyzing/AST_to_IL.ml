@@ -1662,7 +1662,8 @@ and mk_break_continue_labels env tok =
 and mk_switch_break_label env tok =
   let break_label = fresh_label ~label:"__switch_break" tok in
   let switch_env =
-    { env with break_labels = break_label :: env.break_labels }
+    if env.lang =*= Lang.Kotlin then env
+    else { env with break_labels = break_label :: env.break_labels }
   in
   (break_label, [ mk_s (Label break_label) ], switch_env)
 
