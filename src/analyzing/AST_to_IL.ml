@@ -1449,14 +1449,14 @@ and stmt_expr env ?g_expr st =
         | Some e_gen -> SameAs e_gen
       in
       (env, mk_e (Fetch fresh) eorig)
-  | G.Block (_, block, _) -> (
+  | G.Block (tok, block, _) -> (
       (* See 'AST_generic.stmt_to_expr' *)
       match List.rev block with
       | st :: rev_sts ->
           let env, new_stmts = List.fold_left_map stmt env (List.rev rev_sts) in
           let env = add_stmts env (List_.flatten new_stmts) in
           stmt_expr env st
-      | __else__ -> todo env.stmts)
+      | [] -> (env, mk_unit tok (Related (G.S st))))
   | G.Return (t, eorig, _) ->
       let env, expression = expr_opt env t eorig in
       let env = mk_s (Return (t, expression)) |> add_stmt env in
