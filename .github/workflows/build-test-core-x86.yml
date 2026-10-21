@@ -27,11 +27,19 @@ on:
 jobs:
 
   build-core:
+    # NOTE: Keep the name: `build-core (5.3.0)` is a required status check of main.
+    name: build-core (${{ matrix.ocaml_version }})
     strategy:
       matrix:
-        ocaml_version: ["5.3.0"]
+        include:
+          - ocaml_version: "5.3.0"
+            ocaml_image: "5.3-2026-02-24@sha256:44cfa7c54bcb41ba2a6b0552d8104f6e16842e2cd72e77b2f3ff892cf527d13c"
     container:
-      image: ocamlpro/ocaml:${{ matrix.ocaml_version }}
+      # NOTE: Pinned: the 5.3.0 tag was rebuilt on a newer Alpine whose musl makes
+      # the static OCaml 5.3 runtime fail at startup on CPUs with AMX
+      # ("Failed to allocate signal stack for domain 0").
+      # See: https://github.com/HaxeFoundation/docker-library-haxe/issues/14.
+      image: ocamlpro/ocaml:${{ matrix.ocaml_image }}
       # NOTE: Can also match the UID between Alpine and Ubuntu users, removing `--user root`.
       # See: https://github.com/actions/checkout/issues/956.
       # But this suggest to run as root: https://docs.github.com/en/enterprise-server@3.12/actions/sharing-automations/creating-actions/dockerfile-support-for-github-actions#user
@@ -66,7 +74,7 @@ jobs:
       - name: Set GHA cache for OPAM
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache@v4
         with:
-          key: ${{ runner.os }}-${{ runner.arch }}-v1-opam-${{ matrix.ocaml_version }}-${{ hashFiles('opam/*.opam') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-v1-opam-${{ matrix.ocaml_image }}-${{ hashFiles('opam/*.opam') }}
           path: _opam
 
       - name: Create switch
