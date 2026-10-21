@@ -28,10 +28,12 @@ jobs:
 
   build-core:
     # NOTE: Keep the name: `build-core (5.3.0)` is a required status check of main.
-    name: build-core (5.3.0)
+    name: build-core (${{ matrix.ocaml_version }})
     strategy:
       matrix:
-        ocaml_image: ["5.3-2026-02-24@sha256:44cfa7c54bcb41ba2a6b0552d8104f6e16842e2cd72e77b2f3ff892cf527d13c"]
+        include:
+          - ocaml_version: "5.3.0"
+            ocaml_image: "5.3-2026-02-24@sha256:44cfa7c54bcb41ba2a6b0552d8104f6e16842e2cd72e77b2f3ff892cf527d13c"
     container:
       # NOTE: Pinned: the 5.3.0 tag was rebuilt on a newer Alpine whose musl makes
       # the static OCaml 5.3 runtime fail at startup on CPUs with AMX
