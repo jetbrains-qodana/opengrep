@@ -430,10 +430,10 @@ and map_do_block (env : env) (v1, v2, v3, v4) : G.stmt =
   let v3 = token env v4 (* "end" *) in
   G.Block (v1, v2, v3) |> G.s
 
-and map_else_ (env : env) ((v1, v2, v3) : CST.else_) : G.stmt =
-  let _v1 = token env v1 (* "else" *) in
+and map_else_ (env : env) ((v1, v2, v3) : CST.else_) (end_ : Tok.t) : G.stmt =
+  let v1 = token env v1 (* "else" *) in
   let stmt_list = map_statements_and_return env (v2, v3) in
-  G.Block (Tok.unsafe_fake_bracket stmt_list) |> G.s
+  G.Block (v1, stmt_list, end_) |> G.s
 
 (* and map_elseif (env : env) ((v1, v2, v3, v4, v5) : CST.elseif) =
  *   let v1 = token env v1 (\* "elseif" *\) in
@@ -750,35 +750,37 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
   | `If_stmt (v1, v2, v3, v4, v5, v6, v7, v8) ->
       let v1 = token env v1 (* "if" *) in
       let v2 = map_expression env v2 in
-      let _v3 = token env v3 (* "then" *) in
-      let stmt_list =
-        G.Block
-          (Tok.unsafe_fake_bracket (map_statements_and_return env (v4, v5)))
-        |> G.s
+      let v3 = token env v3 (* "then" *) in
+      let v8 = token env v8 (* "end" *) in
+      (* a block goes from its then or else to the keyword after it *)
+      let else_tok =
+        match v7 with
+        | Some (else_, _, _) -> token env else_ (* "else" *)
+        | None -> v8
       in
       let v7 =
         match v7 with
-        | Some x -> Some (map_else_ env x)
+        | Some x -> Some (map_else_ env x v8)
         | None -> None
       in
       (* each elseif is the else branch of the one before it, the else is the
        * else branch of the last one *)
-      let elseifs =
+      let elseifs, then_end =
         List.fold_right
-          (fun ((v1, v2, v3, v4, v5) : CST.elseif) (acc : G.stmt option) ->
+          (fun ((v1, v2, v3, v4, v5) : CST.elseif) (acc, next_tok) ->
             let v1 = token env v1 (* "elseif" *) in
             let v2 = map_expression env v2 in
-            let _v3 = token env v3 (* "then" *) in
+            let v3 = token env v3 (* "then" *) in
             let stmt_list =
-              G.Block
-                (Tok.unsafe_fake_bracket
-                   (map_statements_and_return env (v4, v5)))
+              G.Block (v3, map_statements_and_return env (v4, v5), next_tok)
               |> G.s
             in
-            Some (G.If (v1, G.Cond v2, stmt_list, acc) |> G.s))
-          v6 v7
+            (Some (G.If (v1, G.Cond v2, stmt_list, acc) |> G.s), v1))
+          v6 (v7, else_tok)
       in
-      let _v8 = token env v8 (* "end" *) in
+      let stmt_list =
+        G.Block (v3, map_statements_and_return env (v4, v5), then_end) |> G.s
+      in
       [ G.If (v1, G.Cond v2, stmt_list, elseifs) |> G.s ]
   | `While_stmt (v1, v2, v3, v4, v5, v6) ->
       let v1 = token env v1 (* "while" *) in
@@ -812,11 +814,10 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
       let v1 = token env tok (* "break" *) in
       [ G.Break (v1, LNone, G.sc) |> G.s ]
   | `Label_stmt (v1, v2, v3) ->
-      let _v1 = token env v1 (* "::" *) in
+      let v1 = token env v1 (* "::" *) in
       let v2 = identifier env v2 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
-      let _v3 = token env v3 (* "::" *) in
-      (* ??? *)
-      [ G.Label (v2, G.Block (Tok.unsafe_fake_bracket []) |> G.s) |> G.s ]
+      let v3 = token env v3 (* "::" *) in
+      [ G.Label (v2, G.Block (v1, [], v3) |> G.s) |> G.s ]
   | `Empty_stmt _tok -> [] (* ";" *)
   | `Func_stmt (v1, v2, v3) ->
       let name = map_function_name env v2 in

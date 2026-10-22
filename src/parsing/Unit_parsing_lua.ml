@@ -386,6 +386,24 @@ let tests =
           Alcotest.(check (list string))
             "operands of /" [ "float"; "float" ]
             (literals "nan = 0 / 0"));
+      t "the blocks of if statements and labels have tokens" (fun () ->
+          let fake = ref 0 in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_stmt env stmt =
+                (match stmt.s with
+                | G.Block (l, _, r) when Tok.is_fake l || Tok.is_fake r ->
+                    incr fake
+                | _ -> ());
+                super#visit_stmt env stmt
+            end
+          in
+          visitor#visit_program ()
+            (parse_program
+               "if a then elseif b then x() else end\nif c then end\n::l::");
+          Alcotest.(check int) "blocks with a fake token" 0 !fake);
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in
