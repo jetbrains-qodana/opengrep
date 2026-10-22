@@ -68,6 +68,46 @@ let mk_vars xs ys =
   in
   aux xs ys
 
+(* several targets or values are assigned as tuples, as in Python:
+ * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
+ * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
+ * first value and not a tuple. The targets of a local statement are a list
+ * instead, so that a pattern with local matches only a local statement. *)
+let assign (kind : G.container_operator) (targets : G.expr list)
+    (equal : Tok.t) (values : G.expr list) : G.stmt =
+  let container kind xs = G.Container (kind, fb xs) |> G.e in
+  (* a call or ... gives all its values, as do $X and ... in a pattern;
+   * any other expression gives one value *)
+  let multiple_values (e : G.expr) =
+    match e.e with
+    | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
+    | G.Call _
+    | G.Ellipsis _
+    | G.N (G.Id (("...", _), _)) ->
+        true
+    | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
+    | _ -> false
+  in
+  (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
+  let values =
+    let missing = List.length targets - List.length values in
+    let last_gives_all =
+      match List.rev values with
+      | last :: _ -> multiple_values last
+      | [] -> false
+    in
+    if missing > 0 && not last_gives_all then
+      values @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+    else values
+  in
+  let lhs, rhs =
+    match (targets, values) with
+    | [ x ], [ v ] -> (x, v)
+    | _, [ v ] -> (container kind targets, v)
+    | _, _ -> (container kind targets, container G.Tuple values)
+  in
+  G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s
+
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 
 (* pattern [a-zA-Z_]\w* *)
@@ -169,7 +209,7 @@ let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
   (lp, params, rp)
 
 let map_local_variable_declarator (env : env)
-    ((v1, v2) : CST.local_variable_declarator) local : G.entity list =
+    ((v1, v2) : CST.local_variable_declarator) : G.ident list =
   let ident_first = identifier env v1 (* pattern [a-zA-Z_][a-zA-Z0-9_]* *) in
   let ident_rest =
     List_.map
@@ -179,9 +219,7 @@ let map_local_variable_declarator (env : env)
         ident)
       v2
   in
-  List_.map
-    (fun x -> G.basic_entity x ~attrs:[ G.KeywordAttr (G.Static, local) ])
-    (ident_first :: ident_rest)
+  ident_first :: ident_rest
 
 let map_function_name_field (env : env) ((v1, v2) : CST.function_name_field)
     colon_and_ident : G.name =
@@ -651,52 +689,22 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
             v2)
           v5
       in
-      (* several targets or values are assigned as tuples, as in Python:
-       * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
-       * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
-       * first value and not a tuple *)
-      let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
-      let targets = ident_first :: ident_rest in
-      let values = expr_first :: expr_rest in
-      (* a call or ... gives all its values, as do $X and ... in a pattern;
-       * any other expression gives one value *)
-      let multiple_values (e : G.expr) =
-        match e.e with
-        | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
-        | G.Call _
-        | G.Ellipsis _
-        | G.N (G.Id (("...", _), _)) ->
-            true
-        | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
-        | _ -> false
-      in
-      (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
-      let values =
-        let missing = List.length targets - List.length values in
-        let last_gives_all =
-          match List.rev values with
-          | last :: _ -> multiple_values last
-          | [] -> false
-        in
-        if missing > 0 && not last_gives_all then
-          values
-          @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
-        else values
-      in
-      let lhs, rhs =
-        match (targets, values) with
-        | [ x ], [ v ] -> (x, v)
-        | _, [ v ] -> (tuple targets, v)
-        | _, _ -> (tuple targets, tuple values)
-      in
-      [ G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s ]
-  | `Local_var_decl (v1, v2, v3) ->
+      [
+        assign G.Tuple (ident_first :: ident_rest) equal
+          (expr_first :: expr_rest);
+      ]
+  | `Local_var_decl (v1, v2, v3) -> (
       let local = token env v1 (* "local" *) in
-      let entities = map_local_variable_declarator env v2 local in
-      let exprs =
+      let names = map_local_variable_declarator env v2 in
+      let entities =
+        List_.map
+          (fun x -> G.basic_entity x ~attrs:[ G.KeywordAttr (G.Static, local) ])
+          names
+      in
+      let init =
         match v3 with
         | Some (v1, v2, v3) ->
-            let _v1 = token env v1 (* "=" *) in
+            let equal = token env v1 (* "=" *) in
             let v2 = map_expression env v2 in
             let v3 =
               List_.map
@@ -706,11 +714,27 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
                   v2)
                 v3
             in
-            v2 :: v3
-        | None -> []
+            Some (equal, v2 :: v3)
+        | None -> None
       in
-      let defs = mk_vars entities exprs in
-      List_.map (fun x -> G.DefStmt x |> G.s) defs
+      match (names, init) with
+      (* local a, b = f() declares a and b, then assigns them as a, b = f() *)
+      | _ :: _ :: _, Some (equal, values) ->
+          let targets =
+            List_.map (fun x -> G.N (H2.name_of_id x) |> G.e) names
+          in
+          List_.map
+            (fun ent -> G.DefStmt (ent, G.VarDef G.empty_var) |> G.s)
+            entities
+          @ [ assign G.List targets equal values ]
+      | _ ->
+          let exprs =
+            match init with
+            | Some (_, values) -> values
+            | None -> []
+          in
+          let defs = mk_vars entities exprs in
+          List_.map (fun x -> G.DefStmt x |> G.s) defs)
   | `Do_stmt (v1, v2, v3, v4) -> [ map_do_block env (v1, v2, v3, v4) ]
   | `If_stmt (v1, v2, v3, v4, v5, v6, v7, v8) ->
       let v1 = token env v1 (* "if" *) in

@@ -314,6 +314,51 @@ let tests =
                  (* the main chunk of Lua takes varargs *)
                  "a, b = ...";
                ]));
+      t "a local statement of several names is a multiple assignment"
+        (fun () ->
+          (* a! for a name resolved by Naming_AST, [a,b] for a list *)
+          let rec value (e : G.expr) =
+            match e.e with
+            | G.L (G.Null _) -> "nil"
+            | G.Call _ -> "call"
+            | G.N (G.Id ((name, _), { id_resolved; _ })) ->
+                if Option.is_some !id_resolved then name ^ "!" else name
+            | G.Container (G.Tuple, (_, xs, _)) -> "(" ^ values xs ^ ")"
+            | G.Container (G.List, (_, xs, _)) -> "[" ^ values xs ^ "]"
+            | _ -> "?"
+          and values xs = String.concat "," (List.map value xs) in
+          let shape (stmt : G.stmt) =
+            match stmt.s with
+            | G.DefStmt
+                ( { name = G.EN (G.Id ((name, _), _)); _ },
+                  G.VarDef { vinit; _ } ) -> (
+                match vinit with
+                | Some e -> "local " ^ name ^ " = " ^ value e
+                | None -> "local " ^ name)
+            | G.ExprStmt ({ e = G.Assign (lhs, _, rhs); _ }, _) ->
+                value lhs ^ " = " ^ value rhs
+            | _ -> "?"
+          in
+          let shapes stmts = List.map shape stmts in
+          let check code expected =
+            Alcotest.(check (list string))
+              code expected
+              (shapes (parse_program code))
+          in
+          check "local a, b = f()" [ "local a"; "local b"; "[a!,b!] = call" ];
+          check "local a, b = x" [ "local a"; "local b"; "[a!,b!] = (x,nil)" ];
+          check "local a = f()" [ "local a = call" ];
+          check "local a, b" [ "local a"; "local b" ];
+          (* the names of a local statement are a list, the targets of an
+           * assignment a tuple *)
+          check "a, b = f()" [ "(a,b) = call" ];
+          match parse_pattern "local $A, $B = $F()" with
+          | G.Ss stmts ->
+              Alcotest.(check (list string))
+                "pattern"
+                [ "local $A"; "local $B"; "[$A,$B] = call" ]
+                (shapes stmts)
+          | _ -> Alcotest.fail "expected statements");
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in
