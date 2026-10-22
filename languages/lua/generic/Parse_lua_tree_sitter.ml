@@ -375,9 +375,17 @@ and map_binary_operation (env : env) (x : CST.binary_operation) =
       let v3 = map_expression env v3 in
       G.Call (G.IdSpecial (G.Op G.Mult, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
   | `Exp_SLASH_exp (v1, v2, v3) ->
-      let v1 = map_expression env v1 in
+      (* / divides floats, so an integer numeral operand is a float, and
+       * 0 / 0 is nan rather than an integer division by zero *)
+      let as_float (e : G.expr) =
+        match e.e with
+        | G.L (G.Int (Some i, t)) ->
+            G.L (G.Float (Some (Int64.to_float i), t)) |> G.e
+        | _ -> e
+      in
+      let v1 = as_float (map_expression env v1) in
       let v2 = token env v2 (* "/" *) in
-      let v3 = map_expression env v3 in
+      let v3 = as_float (map_expression env v3) in
       G.Call (G.IdSpecial (G.Op G.Div, v2) |> G.e, fb [ G.Arg v1; G.Arg v3 ])
   | `Exp_SLASHSLASH_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
@@ -467,10 +475,13 @@ and map_expression (env : env) (x : CST.expression) : G.expr =
   | `Str tok ->
       let x = string_literal env tok (* string *) in
       x.G.e
-  | `Num tok ->
+  | `Num tok -> (
       let s, tok = str env tok in
-      G.L (G.Float (float_of_string_opt s, tok))
-      (* number *)
+      (* a numeral without a fraction or an exponent is an integer, unless
+       * it does not fit in 64 bits, as in Lua *)
+      match Parsed_int.parse (s, tok) with
+      | (Some _, _) as i -> G.L (G.Int i)
+      | None, _ -> G.L (G.Float (float_of_string_opt s, tok)))
   | `Nil tok -> G.L (G.Null (token env tok)) (* "nil" *)
   | `True tok -> G.L (G.Bool (true, token env tok)) (* "true" *)
   | `False tok -> G.L (G.Bool (false, token env tok)) (* "false" *)

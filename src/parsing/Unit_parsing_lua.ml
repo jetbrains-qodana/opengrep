@@ -359,6 +359,33 @@ let tests =
                 [ "local $A"; "local $B"; "[$A,$B] = call" ]
                 (shapes stmts)
           | _ -> Alcotest.fail "expected statements");
+      t "an integer numeral is an integer" (fun () ->
+          let literals code =
+            let literals = ref [] in
+            let visitor =
+              object
+                inherit [_] G.iter as super
+
+                method! visit_literal env lit =
+                  (match lit with
+                  | G.Int (Some i, _) ->
+                      literals := Int64.to_string i :: !literals
+                  | G.Float _ -> literals := "float" :: !literals
+                  | _ -> ());
+                  super#visit_literal env lit
+              end
+            in
+            visitor#visit_program () (parse_program code);
+            List.rev !literals
+          in
+          Alcotest.(check (list string))
+            "numerals"
+            [ "10"; "31"; "float"; "float"; "float"; "float" ]
+            (literals "f(10, 0x1F, 1.5, 1e3, 0x1p4, 99999999999999999999)");
+          (* / divides floats, so 0 / 0 is nan and not a division by zero *)
+          Alcotest.(check (list string))
+            "operands of /" [ "float"; "float" ]
+            (literals "nan = 0 / 0"));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in
