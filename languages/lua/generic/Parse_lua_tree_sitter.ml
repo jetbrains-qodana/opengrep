@@ -553,8 +553,12 @@ and map_field_sequence (env : env) ((v1, v2, v3) : CST.field_sequence) :
 
 and map_function_body (env : env) ((v1, v2, v3, v4) : CST.function_body)
     (name : CST.identifier) : G.function_definition =
-  let v1 = map_parameters env v1 in
-  let body = map_do_block env (name, v2, v3, v4) in
+  let ((_, _, rparen) as v1) = map_parameters env v1 in
+  (* the body goes from the ) of the parameters to the end *)
+  let body =
+    G.Block (rparen, map_statements_and_return env (v2, v3), token env v4)
+    |> G.s
+  in
   {
     G.fparams = v1;
     frettype = None;
