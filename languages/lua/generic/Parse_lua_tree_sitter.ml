@@ -97,7 +97,21 @@ let assign (kind : G.container_operator) (targets : G.expr list)
       | [] -> false
     in
     if missing > 0 && not last_gives_all then
-      values @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+      (* the nil is at the end of the values, so that a metavariable bound to
+       * it has a location *)
+      let range =
+        H2.range_of_tokens
+          (H2.ii_of_any (G.Anys (List_.map (fun v -> G.E v) values)))
+      in
+      let nil () =
+        match range with
+        | Some (_, last) ->
+            let e = G.L (G.Null (Tok.fake_tok last "nil")) |> G.e in
+            H2.set_e_range last last e;
+            e
+        | None -> G.L (G.Null (G.fake "nil")) |> G.e
+      in
+      values @ List.init missing (fun _ -> nil ())
     else values
   in
   let lhs, rhs =

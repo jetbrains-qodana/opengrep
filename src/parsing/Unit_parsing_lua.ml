@@ -404,6 +404,23 @@ let tests =
             (parse_program
                "if a then elseif b then x() else end\nif c then end\n::l::");
           Alcotest.(check int) "blocks with a fake token" 0 !fake);
+      t "the nil of a missing value has a location" (fun () ->
+          match (first_statement "a, b = a").s with
+          | G.ExprStmt
+              ( {
+                  e =
+                    G.Assign
+                      ( _,
+                        _,
+                        { e = G.Container (G.Tuple, (_, [ _; nil ], _)); _ } );
+                  _;
+                },
+                _ ) ->
+              Alcotest.(check bool)
+                "location" true
+                (Option.is_some
+                   (AST_generic_helpers.range_of_any_opt (G.E nil)))
+          | _ -> Alcotest.fail "expected (a, b) = (a, nil)");
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in
