@@ -213,6 +213,23 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "self refers to the self parameter" (fun () ->
+          let resolved = ref [] in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_expr env e =
+                (match e.e with
+                | G.N (G.Id (("self", _), info)) ->
+                    resolved := Option.is_some !(info.id_resolved) :: !resolved
+                | _ -> ());
+                super#visit_expr env e
+            end
+          in
+          visitor#visit_program ()
+            (parse_program "function T:m() return self end");
+          Alcotest.(check (list bool)) "self" [ true ] !resolved);
       t "repeat until loops while the condition is false" (fun () ->
           match (first_statement "repeat x() until c").s with
           | G.DoWhile
