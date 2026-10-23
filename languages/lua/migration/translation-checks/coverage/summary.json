@@ -1,0 +1,109 @@
+{
+ "method": "source token coverage: an independent Lua lexer + context classifier gives every source token; each kept token must appear in the NEW parser's -full_token_info AST JSON as an OriginTok at the same byte offset with the same text; reverse check for garbled/misplaced/duplicated AST tokens; supplementary operator kind/arity/operand-side check (opcheck.py) on every 3rd file. Counts are over the 5346 files parsed without error; tokens dropped by design are excluded.",
+ "files_processed": 5352,
+ "files_with_parse_errors": 6,
+ "files_timeout": 0,
+ "categories": {
+  "ident": {
+   "expected": 1589116,
+   "actual": 1589108,
+   "missing": 8,
+   "extra": 0
+  },
+  "keyword": {
+   "expected": 383032,
+   "actual": 383032,
+   "missing": 0,
+   "extra": 0
+  },
+  "literal": {
+   "expected": 52739,
+   "actual": 52739,
+   "missing": 0,
+   "extra": 0
+  },
+  "number": {
+   "expected": 122209,
+   "actual": 122208,
+   "missing": 1,
+   "extra": 0
+  },
+  "string": {
+   "expected": 296465,
+   "actual": 296463,
+   "missing": 2,
+   "extra": 10
+  },
+  "vararg": {
+   "expected": 3031,
+   "actual": 3031,
+   "missing": 0,
+   "extra": 0
+  },
+  "op": {
+   "expected": 173744,
+   "actual": 173740,
+   "missing": 4,
+   "extra": 0
+  },
+  "punct": {
+   "expected": 1441106,
+   "actual": 1441102,
+   "missing": 4,
+   "extra": 0
+  },
+  "other": {
+   "expected": 3,
+   "actual": 3,
+   "missing": 0,
+   "extra": 0
+  },
+  "dropped-by-design": {
+   "expected": 933136,
+   "actual": 2,
+   "missing": 933134,
+   "extra": 0
+  }
+ },
+ "real_bugs": [
+  {
+   "title": "excess values of a local declaration are dropped (mk_vars): local a = e1, e2 keeps only e1; e2 (incl. calls) is absent from the AST; same in old parser (not a regression)",
+   "reproducer": "local a = f(), g()   -- AST: DefStmt a = Call(f); g() absent, rule g(...) does not match (x = f(), g() does match)",
+   "count": 4,
+   "occurrences": [
+    "lua_lua/testes/gc.lua:661",
+    "luvit_luvit/tests/test-tls-client-abort.lua:26",
+    "luvit_luvit/tests/test-tls-client-abort2.lua:26",
+    "teal-language_tl/teal/debug.lua:49"
+   ]
+  }
+ ],
+ "files_ok": 5346,
+ "old_parser": {
+  "files_ok": 5004,
+  "files_with_parse_errors": 348,
+  "both_ok_files": 5002,
+  "missing_kept_tokens_both_ok": {
+   "new": 17,
+   "old": 622
+  },
+  "extra_tokens_both_ok": {
+   "new": 9,
+   "old": 32
+  },
+  "tokens_covered_by_old_not_new": 0
+ },
+ "opcheck_new": {
+  "files": 1784,
+  "operators_checked": 57570,
+  "problems": 0
+ },
+ "discrepancies_new_ok_files": {
+  "missing_total": 19,
+  "missing_real_bug": 17,
+  "missing_oracle": 0,
+  "extra_total": 10,
+  "extra_oracle_empty_long_string": 10,
+  "dropped_by_design_found_kept_oracle": 2
+ }
+}

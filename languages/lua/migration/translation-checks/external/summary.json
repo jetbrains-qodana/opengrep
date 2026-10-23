@@ -1,0 +1,415 @@
+{
+ "method": "external reference parser: luaparse 0.3.1 (Lua 5.3, fallback LuaJIT/5.1) AST vs opengrep AST_generic (-dump_ast -json -full_token_info), facts matched by category + byte position + descriptor; also tree-shape (operand/argument start positions) and enclosing-function checks",
+ "files_processed": 5301,
+ "files_total": 5352,
+ "files_skipped_reference_parse_failed": 51,
+ "files_with_parse_errors": 0,
+ "files_with_parse_errors_old_parser": 301,
+ "categories": {
+  "func_global": {
+   "expected": 8154,
+   "actual": 8154,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "func_local": {
+   "expected": 8565,
+   "actual": 8565,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "func_method": {
+   "expected": 8429,
+   "actual": 8429,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "func_anon": {
+   "expected": 28792,
+   "actual": 28792,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "param": {
+   "expected": 50985,
+   "actual": 50985,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "call": {
+   "expected": 214096,
+   "actual": 214096,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "method_call": {
+   "expected": 75426,
+   "actual": 75426,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "table": {
+   "expected": 103545,
+   "actual": 103544,
+   "missing": 1,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "field_pos": {
+   "expected": 81007,
+   "actual": 81007,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "field_named": {
+   "expected": 165675,
+   "actual": 165675,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "field_bracket": {
+   "expected": 25647,
+   "actual": 25647,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "local_var": {
+   "expected": 113103,
+   "actual": 113103,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "assign": {
+   "expected": 73113,
+   "actual": 73113,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "return": {
+   "expected": 44557,
+   "actual": 44557,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "if": {
+   "expected": 55137,
+   "actual": 55137,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "elseif": {
+   "expected": 5562,
+   "actual": 5562,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "while": {
+   "expected": 1149,
+   "actual": 1149,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "repeat": {
+   "expected": 166,
+   "actual": 166,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "do": {
+   "expected": 461,
+   "actual": 461,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "for_num": {
+   "expected": 2544,
+   "actual": 2544,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "for_gen": {
+   "expected": 9240,
+   "actual": 9240,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "for_var": {
+   "expected": 20329,
+   "actual": 20329,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "break": {
+   "expected": 1442,
+   "actual": 1442,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "goto": {
+   "expected": 342,
+   "actual": 342,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "label": {
+   "expected": 172,
+   "actual": 172,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "binop": {
+   "expected": 134791,
+   "actual": 134787,
+   "missing": 4,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "unop": {
+   "expected": 30205,
+   "actual": 30205,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "string": {
+   "expected": 290122,
+   "actual": 290120,
+   "missing": 2,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "number": {
+   "expected": 115706,
+   "actual": 115705,
+   "missing": 1,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "bool": {
+   "expected": 32615,
+   "actual": 32615,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "nil": {
+   "expected": 18901,
+   "actual": 18901,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "vararg": {
+   "expected": 2890,
+   "actual": 2890,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "dot_access": {
+   "expected": 311650,
+   "actual": 311648,
+   "missing": 2,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "index_access": {
+   "expected": 37592,
+   "actual": 37592,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "ident": {
+   "expected": 1552336,
+   "actual": 1552328,
+   "missing": 8,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "binop_shape": {
+   "expected": 134791,
+   "actual": 134787,
+   "missing": 4,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "unop_shape": {
+   "expected": 30205,
+   "actual": 30205,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "call_shape": {
+   "expected": 289522,
+   "actual": 289522,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:func_global": {
+   "expected": 8154,
+   "actual": 8154,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:func_local": {
+   "expected": 8565,
+   "actual": 8565,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:func_method": {
+   "expected": 8429,
+   "actual": 8429,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:func_anon": {
+   "expected": 28792,
+   "actual": 28792,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:call": {
+   "expected": 214096,
+   "actual": 214096,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:method_call": {
+   "expected": 75426,
+   "actual": 75426,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:table": {
+   "expected": 103545,
+   "actual": 103544,
+   "missing": 1,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:local_var": {
+   "expected": 113103,
+   "actual": 113103,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:assign": {
+   "expected": 73113,
+   "actual": 73113,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:return": {
+   "expected": 44557,
+   "actual": 44557,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:if": {
+   "expected": 55137,
+   "actual": 55137,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:while": {
+   "expected": 1149,
+   "actual": 1149,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:repeat": {
+   "expected": 166,
+   "actual": 166,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:for_num": {
+   "expected": 2544,
+   "actual": 2544,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:for_gen": {
+   "expected": 9240,
+   "actual": 9240,
+   "missing": 0,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:binop": {
+   "expected": 134791,
+   "actual": 134787,
+   "missing": 4,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "scope:string": {
+   "expected": 290122,
+   "actual": 290120,
+   "missing": 2,
+   "extra": 0,
+   "desc_mismatch": 0
+  },
+  "number_kind": {
+   "expected": 115706,
+   "actual": 115705,
+   "missing": 1,
+   "extra": 0,
+   "desc_mismatch": 0
+  }
+ },
+ "real_bugs": [
+  {
+   "title": "extra values of a local declaration are dropped (local a = x, <more expressions>): the expressions after the last name disappear from the AST, including calls inside them (pre-existing, same in the old parser; mk_vars in Parse_lua_tree_sitter.ml)",
+   "reproducer": "local a = 1, os.execute(cmd)   -- AST: only DefStmt a = 1; os.execute(cmd) absent; pattern os.execute(...) gives 0 matches (1 match for local a = os.execute(cmd))",
+   "count": 4,
+   "files": [
+    "lua_lua/testes/gc.lua:661",
+    "teal-language_tl/teal/debug.lua:49",
+    "luvit_luvit/tests/test-tls-client-abort.lua:26",
+    "luvit_luvit/tests/test-tls-client-abort2.lua:26"
+   ]
+  }
+ ]
+}

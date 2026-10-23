@@ -1,0 +1,486 @@
+{
+ "method": "lexical oracle: independent Python Lua lexer + token-level analysis keyed by byte position, compared with constructs extracted from the opengrep-core -full_token_info -dump_ast -json AST (new parser), also run on the old parser",
+ "files_processed": 5349,
+ "files_total": 5352,
+ "files_without_ast": 3,
+ "files_with_parse_errors": 6,
+ "categories": {
+  "name": {
+   "expected": 1589177,
+   "actual": 1589169,
+   "matched": 1589169,
+   "missing": 8,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "string": {
+   "expected": 296465,
+   "actual": 296463,
+   "matched": 296463,
+   "missing": 2,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "number": {
+   "expected": 122209,
+   "actual": 122208,
+   "matched": 122208,
+   "missing": 1,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "nil": {
+   "expected": 19557,
+   "actual": 19557,
+   "matched": 19557,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "true": {
+   "expected": 22046,
+   "actual": 22046,
+   "matched": 22046,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "false": {
+   "expected": 11136,
+   "actual": 11136,
+   "matched": 11136,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "vararg": {
+   "expected": 3031,
+   "actual": 3031,
+   "matched": 3031,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "function": {
+   "expected": 55195,
+   "actual": 55195,
+   "matched": 55195,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "local": {
+   "expected": 102344,
+   "actual": 102344,
+   "matched": 102344,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "local_name": {
+   "expected": 115973,
+   "actual": 115973,
+   "matched": 115973,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "local_values": {
+   "expected": 102344,
+   "actual": 102344,
+   "matched": 102340,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 4
+  },
+  "call": {
+   "expected": 223833,
+   "actual": 223833,
+   "matched": 223833,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "method_call": {
+   "expected": 75869,
+   "actual": 75869,
+   "matched": 75869,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "dot": {
+   "expected": 317153,
+   "actual": 317151,
+   "matched": 317151,
+   "missing": 2,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "index": {
+   "expected": 38879,
+   "actual": 38879,
+   "matched": 38879,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "table": {
+   "expected": 105163,
+   "actual": 105162,
+   "matched": 105162,
+   "missing": 1,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "op": {
+   "expected": 173744,
+   "actual": 173740,
+   "matched": 173740,
+   "missing": 4,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "assign": {
+   "expected": 74798,
+   "actual": 74798,
+   "matched": 74798,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "return": {
+   "expected": 45702,
+   "actual": 45702,
+   "matched": 45702,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "for": {
+   "expected": 12303,
+   "actual": 12303,
+   "matched": 12303,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "for_iter": {
+   "expected": 9533,
+   "actual": 9533,
+   "matched": 9533,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "while": {
+   "expected": 1198,
+   "actual": 1198,
+   "matched": 1198,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "repeat": {
+   "expected": 183,
+   "actual": 183,
+   "matched": 183,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "if": {
+   "expected": 56107,
+   "actual": 56107,
+   "matched": 56107,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "elseif": {
+   "expected": 5644,
+   "actual": 5644,
+   "matched": 5644,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "goto": {
+   "expected": 431,
+   "actual": 431,
+   "matched": 431,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "label": {
+   "expected": 239,
+   "actual": 239,
+   "matched": 239,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "break": {
+   "expected": 1481,
+   "actual": 1481,
+   "matched": 1481,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  },
+  "number_value": {
+   "expected": 122208,
+   "actual": 122208,
+   "matched": 122208,
+   "missing": 0,
+   "extra": 0,
+   "mismatch": 0
+  }
+ },
+ "categories_scope": "new parser, the 5346 files without parse errors; 'mismatch' = same position, different value (arity, kind, field counts, literal value)",
+ "real_bugs": [
+  {
+   "title": "local declaration with more values than names drops the extra values (mk_vars in Parse_lua_tree_sitter.ml); not a regression, the old parser does the same",
+   "reproducer": "local a = f(), g()   -- AST: DefStmt a = f(); the call g() is absent from the AST (also: local b, c = 1, 2, h() drops h())",
+   "count": 4
+  }
+ ],
+ "old_parser": {
+  "files_with_parse_errors": 346,
+  "categories": {
+   "name": {
+    "expected": 1281306,
+    "actual": 1281253,
+    "matched": 1281251,
+    "missing": 55,
+    "extra": 2,
+    "mismatch": 0
+   },
+   "string": {
+    "expected": 251610,
+    "actual": 251608,
+    "matched": 251608,
+    "missing": 2,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "number": {
+    "expected": 93463,
+    "actual": 93462,
+    "matched": 93461,
+    "missing": 1,
+    "extra": 0,
+    "mismatch": 1
+   },
+   "nil": {
+    "expected": 15207,
+    "actual": 15203,
+    "matched": 15203,
+    "missing": 4,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "true": {
+    "expected": 17398,
+    "actual": 17398,
+    "matched": 17398,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "false": {
+    "expected": 8727,
+    "actual": 8727,
+    "matched": 8727,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "vararg": {
+    "expected": 2285,
+    "actual": 2314,
+    "matched": 2285,
+    "missing": 0,
+    "extra": 29,
+    "mismatch": 0
+   },
+   "function": {
+    "expected": 45942,
+    "actual": 45942,
+    "matched": 45941,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 1
+   },
+   "local": {
+    "expected": 85185,
+    "actual": 85185,
+    "matched": 85185,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "local_name": {
+    "expected": 96295,
+    "actual": 96295,
+    "matched": 96295,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "local_values": {
+    "expected": 85185,
+    "actual": 85185,
+    "matched": 85182,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 3
+   },
+   "call": {
+    "expected": 182977,
+    "actual": 181574,
+    "matched": 181574,
+    "missing": 1403,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "method_call": {
+    "expected": 62070,
+    "actual": 62070,
+    "matched": 62070,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "dot": {
+    "expected": 263678,
+    "actual": 263667,
+    "matched": 263666,
+    "missing": 12,
+    "extra": 1,
+    "mismatch": 0
+   },
+   "index": {
+    "expected": 28992,
+    "actual": 28988,
+    "matched": 28988,
+    "missing": 4,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "table": {
+    "expected": 87429,
+    "actual": 87429,
+    "matched": 87428,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 1
+   },
+   "op": {
+    "expected": 133686,
+    "actual": 133682,
+    "matched": 133682,
+    "missing": 4,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "assign": {
+    "expected": 59279,
+    "actual": 59278,
+    "matched": 59277,
+    "missing": 1,
+    "extra": 0,
+    "mismatch": 1
+   },
+   "return": {
+    "expected": 36960,
+    "actual": 36960,
+    "matched": 36960,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "for": {
+    "expected": 9103,
+    "actual": 9103,
+    "matched": 9103,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "for_iter": {
+    "expected": 7013,
+    "actual": 7013,
+    "matched": 6991,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 22
+   },
+   "while": {
+    "expected": 905,
+    "actual": 905,
+    "matched": 905,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "repeat": {
+    "expected": 128,
+    "actual": 128,
+    "matched": 128,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "if": {
+    "expected": 44303,
+    "actual": 44303,
+    "matched": 44303,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "elseif": {
+    "expected": 4489,
+    "actual": 4489,
+    "matched": 4489,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "goto": {
+    "expected": 287,
+    "actual": 287,
+    "matched": 287,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "label": {
+    "expected": 137,
+    "actual": 137,
+    "matched": 137,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "break": {
+    "expected": 1141,
+    "actual": 1141,
+    "matched": 1141,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 0
+   },
+   "number_value": {
+    "expected": 93462,
+    "actual": 93462,
+    "matched": 2249,
+    "missing": 0,
+    "extra": 0,
+    "mismatch": 91213
+   }
+  }
+ }
+}
