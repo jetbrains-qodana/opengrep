@@ -111,6 +111,14 @@ let vararg_expression (env : env) tok =
   | Pattern -> G.Ellipsis tok
   | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
 
+(* a.b.c in 'function a.b.c:m()' *)
+let rec function_name_ids (env : env) (x : CST.function_name_prefix_expression)
+    : G.ident list =
+  match x with
+  | `Id tok -> [ identifier env tok ]
+  | `Func_name_dot_index_exp (v1, _v2, v3) ->
+      function_name_ids env v1 @ [ identifier env v3 ]
+
 (* Lua 5.3+ has integers and floats; the previous translation made every
  * number a Float. LuaJIT adds the 64-bit integer suffixes LL and ULL and
  * the imaginary suffix i. *)
@@ -574,12 +582,24 @@ and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
   match x with
   | `Func_decl (v1, v2, v3) ->
       let tfunction = token env v1 (* "function" *) in
-      let name =
+      (* function a.b.c:m() *)
+      let ids, colon =
         match v2 with
-        | `Func_name_prefix_exp (`Id tok) -> H2.name_of_id (identifier env tok)
-        | x -> todo env x
+        | `Func_name_prefix_exp x -> (function_name_ids env x, None)
+        | `Func_name_meth_index_exp (v1, v2, v3) ->
+            (function_name_ids env v1 @ [ identifier env v3 ], Some (token env v2))
       in
+      let name = H2.name_of_ids ids in
       let def = map_function_body env v3 tfunction in
+      (* function T:m(x) is function T.m(self, x) *)
+      let def =
+        match colon with
+        | Some colon ->
+            let self = G.Param (G.param_of_id ("self", colon)) in
+            let lp, params, rp = def.fparams in
+            { def with fparams = (lp, self :: params, rp) }
+        | None -> def
+      in
       let ent = { G.name = G.EN name; G.attrs = []; G.tparams = None } in
       [ G.DefStmt (ent, G.FuncDef def) |> G.s ]
   | `Local_func_decl (v1, v2, v3, v4) ->
