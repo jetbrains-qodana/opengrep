@@ -415,6 +415,21 @@
     }
   },
   {
+    "type": "deep_ellipsis",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "do_statement",
     "named": true,
     "fields": {
@@ -532,6 +547,10 @@
       "types": [
         {
           "type": "binary_expression",
+          "named": true
+        },
+        {
+          "type": "deep_ellipsis",
           "named": true
         },
         {
@@ -1743,6 +1762,10 @@
     "named": false
   },
   {
+    "type": "...>",
+    "named": false
+  },
+  {
     "type": "/",
     "named": false
   },
@@ -1764,6 +1787,10 @@
   },
   {
     "type": "<",
+    "named": false
+  },
+  {
+    "type": "<...",
     "named": false
   },
   {

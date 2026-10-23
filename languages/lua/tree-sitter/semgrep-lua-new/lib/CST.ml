@@ -214,26 +214,23 @@ and elseif_statement = (
 )
 
 and expression = [
-    `Nil of Token.t (* "nil" *)
-  | `False of Token.t (* "false" *)
-  | `True of Token.t (* "true" *)
-  | `Num of number (*tok*)
-  | `Str of string_
-  | `Vararg_exp of Token.t (* "..." *)
-  | `Func_defi of (Token.t (* "function" *) * function_body)
-  | `Var of variable
-  | `Func_call of function_call
-  | `Paren_exp of parenthesized_expression
-  | `Table_cons of table_constructor
-  | `Bin_exp of binary_expression
-  | `Un_exp of (
-        [
-            `Not of Token.t (* "not" *)
-          | `HASH of Token.t (* "#" *)
-          | `DASH of Token.t (* "-" *)
-          | `TILDE of Token.t (* "~" *)
-        ]
-      * expression
+    `Choice_nil of [
+        `Nil of Token.t (* "nil" *)
+      | `False of Token.t (* "false" *)
+      | `True of Token.t (* "true" *)
+      | `Num of number (*tok*)
+      | `Str of string_
+      | `Vararg_exp of Token.t (* "..." *)
+      | `Func_defi of function_definition
+      | `Var of variable
+      | `Func_call of function_call
+      | `Paren_exp of parenthesized_expression
+      | `Table_cons of table_constructor
+      | `Bin_exp of binary_expression
+      | `Un_exp of unary_expression
+    ]
+  | `Deep_ellips of (
+        Token.t (* "<..." *) * expression * Token.t (* "...>" *)
     )
 ]
 
@@ -292,6 +289,8 @@ and function_call = (
     ]
   * arguments
 )
+
+and function_definition = (Token.t (* "function" *) * function_body)
 
 and if_statement = (
     Token.t (* "if" *)
@@ -352,6 +351,16 @@ and table_constructor = (
     Token.t (* "{" *)
   * field_list option
   * Token.t (* "}" *)
+)
+
+and unary_expression = (
+    [
+        `Not of Token.t (* "not" *)
+      | `HASH of Token.t (* "#" *)
+      | `DASH of Token.t (* "-" *)
+      | `TILDE of Token.t (* "~" *)
+    ]
+  * expression
 )
 
 and variable = [
@@ -445,16 +454,16 @@ type bracket_index_expression (* inlined *) = (
     prefix_expression * Token.t (* "[" *) * expression * Token.t (* "]" *)
 )
 
+type deep_ellipsis (* inlined *) = (
+    Token.t (* "<..." *) * expression * Token.t (* "...>" *)
+)
+
 type dot_index_expression (* inlined *) = (
     prefix_expression * Token.t (* "." *) * identifier (*tok*)
 )
 
 type function_declaration (* inlined *) = (
     Token.t (* "function" *) * function_name * function_body
-)
-
-type function_definition (* inlined *) = (
-    Token.t (* "function" *) * function_body
 )
 
 type global_function_declaration (* inlined *) = (
@@ -469,16 +478,6 @@ type global_variable_declaration (* inlined *) = (
 type local_function_declaration (* inlined *) = (
     Token.t (* "local" *) * Token.t (* "function" *) * identifier (*tok*)
   * function_body
-)
-
-type unary_expression (* inlined *) = (
-    [
-        `Not of Token.t (* "not" *)
-      | `HASH of Token.t (* "#" *)
-      | `DASH of Token.t (* "-" *)
-      | `TILDE of Token.t (* "~" *)
-    ]
-  * expression
 )
 
 type variable_assignment (* inlined *) = (

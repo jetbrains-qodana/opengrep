@@ -535,63 +535,54 @@ and map_elseif_statement (env : env) ((v1, v2, v3, v4) : CST.elseif_statement) =
 
 and map_expression (env : env) (x : CST.expression) =
   (match x with
-  | `Nil tok -> R.Case ("Nil",
-      (* "nil" *) token env tok
-    )
-  | `False tok -> R.Case ("False",
-      (* "false" *) token env tok
-    )
-  | `True tok -> R.Case ("True",
-      (* "true" *) token env tok
-    )
-  | `Num tok -> R.Case ("Num",
-      (* number *) token env tok
-    )
-  | `Str x -> R.Case ("Str",
-      map_string_ env x
-    )
-  | `Vararg_exp tok -> R.Case ("Vararg_exp",
-      (* "..." *) token env tok
-    )
-  | `Func_defi (v1, v2) -> R.Case ("Func_defi",
-      let v1 = (* "function" *) token env v1 in
-      let v2 = map_function_body env v2 in
-      R.Tuple [v1; v2]
-    )
-  | `Var x -> R.Case ("Var",
-      map_variable env x
-    )
-  | `Func_call x -> R.Case ("Func_call",
-      map_function_call env x
-    )
-  | `Paren_exp x -> R.Case ("Paren_exp",
-      map_parenthesized_expression env x
-    )
-  | `Table_cons x -> R.Case ("Table_cons",
-      map_table_constructor env x
-    )
-  | `Bin_exp x -> R.Case ("Bin_exp",
-      map_binary_expression env x
-    )
-  | `Un_exp (v1, v2) -> R.Case ("Un_exp",
-      let v1 =
-        (match v1 with
-        | `Not tok -> R.Case ("Not",
-            (* "not" *) token env tok
-          )
-        | `HASH tok -> R.Case ("HASH",
-            (* "#" *) token env tok
-          )
-        | `DASH tok -> R.Case ("DASH",
-            (* "-" *) token env tok
-          )
-        | `TILDE tok -> R.Case ("TILDE",
-            (* "~" *) token env tok
-          )
+  | `Choice_nil x -> R.Case ("Choice_nil",
+      (match x with
+      | `Nil tok -> R.Case ("Nil",
+          (* "nil" *) token env tok
         )
-      in
+      | `False tok -> R.Case ("False",
+          (* "false" *) token env tok
+        )
+      | `True tok -> R.Case ("True",
+          (* "true" *) token env tok
+        )
+      | `Num tok -> R.Case ("Num",
+          (* number *) token env tok
+        )
+      | `Str x -> R.Case ("Str",
+          map_string_ env x
+        )
+      | `Vararg_exp tok -> R.Case ("Vararg_exp",
+          (* "..." *) token env tok
+        )
+      | `Func_defi x -> R.Case ("Func_defi",
+          map_function_definition env x
+        )
+      | `Var x -> R.Case ("Var",
+          map_variable env x
+        )
+      | `Func_call x -> R.Case ("Func_call",
+          map_function_call env x
+        )
+      | `Paren_exp x -> R.Case ("Paren_exp",
+          map_parenthesized_expression env x
+        )
+      | `Table_cons x -> R.Case ("Table_cons",
+          map_table_constructor env x
+        )
+      | `Bin_exp x -> R.Case ("Bin_exp",
+          map_binary_expression env x
+        )
+      | `Un_exp x -> R.Case ("Un_exp",
+          map_unary_expression env x
+        )
+      )
+    )
+  | `Deep_ellips (v1, v2, v3) -> R.Case ("Deep_ellips",
+      let v1 = (* "<..." *) token env v1 in
       let v2 = map_expression env v2 in
-      R.Tuple [v1; v2]
+      let v3 = (* "...>" *) token env v3 in
+      R.Tuple [v1; v2; v3]
     )
   )
 
@@ -724,6 +715,11 @@ and map_function_call (env : env) ((v1, v2) : CST.function_call) =
     )
   in
   let v2 = map_arguments env v2 in
+  R.Tuple [v1; v2]
+
+and map_function_definition (env : env) ((v1, v2) : CST.function_definition) =
+  let v1 = (* "function" *) token env v1 in
+  let v2 = map_function_body env v2 in
   R.Tuple [v1; v2]
 
 and map_if_statement (env : env) ((v1, v2, v3, v4, v5, v6, v7) : CST.if_statement) =
@@ -862,6 +858,26 @@ and map_table_constructor (env : env) ((v1, v2, v3) : CST.table_constructor) =
   in
   let v3 = (* "}" *) token env v3 in
   R.Tuple [v1; v2; v3]
+
+and map_unary_expression (env : env) ((v1, v2) : CST.unary_expression) =
+  let v1 =
+    (match v1 with
+    | `Not tok -> R.Case ("Not",
+        (* "not" *) token env tok
+      )
+    | `HASH tok -> R.Case ("HASH",
+        (* "#" *) token env tok
+      )
+    | `DASH tok -> R.Case ("DASH",
+        (* "-" *) token env tok
+      )
+    | `TILDE tok -> R.Case ("TILDE",
+        (* "~" *) token env tok
+      )
+    )
+  in
+  let v2 = map_expression env v2 in
+  R.Tuple [v1; v2]
 
 and map_variable (env : env) (x : CST.variable) =
   (match x with

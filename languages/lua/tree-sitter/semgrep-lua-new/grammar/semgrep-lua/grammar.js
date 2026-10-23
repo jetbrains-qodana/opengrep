@@ -37,6 +37,13 @@ module.exports = grammar(standard_grammar, {
       $._parameter,
       repeat(seq(',', $._parameter)),
     ),
+    // '<... e ...>'
+    expression: ($, previous) => choice(
+      previous,
+      $.deep_ellipsis,
+    ),
+    deep_ellipsis: $ => seq('<...', $.expression, '...>'),
+
     _parameter: $ => choice(
       field('name', $.identifier),
       $._vararg_parameter,

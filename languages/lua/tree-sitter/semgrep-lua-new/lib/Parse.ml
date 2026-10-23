@@ -451,6 +451,14 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "global_implicit_variable_declaration");
     |];
   );
+  "deep_ellipsis",
+  Some (
+    Seq [
+      Token (Literal "<...");
+      Token (Name "expression");
+      Token (Literal "...>");
+    ];
+  );
   "do_statement",
   Some (
     Seq [
@@ -492,19 +500,22 @@ let children_regexps : (string * Run.exp option) list = [
   "expression",
   Some (
     Alt [|
-      Token (Name "nil");
-      Token (Name "false");
-      Token (Name "true");
-      Token (Name "number");
-      Token (Name "string");
-      Token (Name "vararg_expression");
-      Token (Name "function_definition");
-      Token (Name "variable");
-      Token (Name "function_call");
-      Token (Name "parenthesized_expression");
-      Token (Name "table_constructor");
-      Token (Name "binary_expression");
-      Token (Name "unary_expression");
+      Alt [|
+        Token (Name "nil");
+        Token (Name "false");
+        Token (Name "true");
+        Token (Name "number");
+        Token (Name "string");
+        Token (Name "vararg_expression");
+        Token (Name "function_definition");
+        Token (Name "variable");
+        Token (Name "function_call");
+        Token (Name "parenthesized_expression");
+        Token (Name "table_constructor");
+        Token (Name "binary_expression");
+        Token (Name "unary_expression");
+      |];
+      Token (Name "deep_ellipsis");
     |];
   );
   "expression_list",
@@ -1779,6 +1790,20 @@ and trans_declaration ((kind, body) : mt) : CST.declaration =
       )
   | Leaf _ -> assert false
 
+and trans_deep_ellipsis ((kind, body) : mt) : CST.deep_ellipsis =
+  match body with
+  | Children v ->
+      (match v with
+      | Seq [v0; v1; v2] ->
+          (
+            Run.trans_token (Run.matcher_token v0),
+            trans_expression (Run.matcher_token v1),
+            Run.trans_token (Run.matcher_token v2)
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
 and trans_do_statement ((kind, body) : mt) : CST.do_statement =
   match body with
   | Children v ->
@@ -1847,56 +1872,66 @@ and trans_expression ((kind, body) : mt) : CST.expression =
   | Children v ->
       (match v with
       | Alt (0, v) ->
-          `Nil (
-            trans_nil (Run.matcher_token v)
+          `Choice_nil (
+            (match v with
+            | Alt (0, v) ->
+                `Nil (
+                  trans_nil (Run.matcher_token v)
+                )
+            | Alt (1, v) ->
+                `False (
+                  trans_false_ (Run.matcher_token v)
+                )
+            | Alt (2, v) ->
+                `True (
+                  trans_true_ (Run.matcher_token v)
+                )
+            | Alt (3, v) ->
+                `Num (
+                  trans_number (Run.matcher_token v)
+                )
+            | Alt (4, v) ->
+                `Str (
+                  trans_string_ (Run.matcher_token v)
+                )
+            | Alt (5, v) ->
+                `Vararg_exp (
+                  trans_vararg_expression (Run.matcher_token v)
+                )
+            | Alt (6, v) ->
+                `Func_defi (
+                  trans_function_definition (Run.matcher_token v)
+                )
+            | Alt (7, v) ->
+                `Var (
+                  trans_variable (Run.matcher_token v)
+                )
+            | Alt (8, v) ->
+                `Func_call (
+                  trans_function_call (Run.matcher_token v)
+                )
+            | Alt (9, v) ->
+                `Paren_exp (
+                  trans_parenthesized_expression (Run.matcher_token v)
+                )
+            | Alt (10, v) ->
+                `Table_cons (
+                  trans_table_constructor (Run.matcher_token v)
+                )
+            | Alt (11, v) ->
+                `Bin_exp (
+                  trans_binary_expression (Run.matcher_token v)
+                )
+            | Alt (12, v) ->
+                `Un_exp (
+                  trans_unary_expression (Run.matcher_token v)
+                )
+            | _ -> assert false
+            )
           )
       | Alt (1, v) ->
-          `False (
-            trans_false_ (Run.matcher_token v)
-          )
-      | Alt (2, v) ->
-          `True (
-            trans_true_ (Run.matcher_token v)
-          )
-      | Alt (3, v) ->
-          `Num (
-            trans_number (Run.matcher_token v)
-          )
-      | Alt (4, v) ->
-          `Str (
-            trans_string_ (Run.matcher_token v)
-          )
-      | Alt (5, v) ->
-          `Vararg_exp (
-            trans_vararg_expression (Run.matcher_token v)
-          )
-      | Alt (6, v) ->
-          `Func_defi (
-            trans_function_definition (Run.matcher_token v)
-          )
-      | Alt (7, v) ->
-          `Var (
-            trans_variable (Run.matcher_token v)
-          )
-      | Alt (8, v) ->
-          `Func_call (
-            trans_function_call (Run.matcher_token v)
-          )
-      | Alt (9, v) ->
-          `Paren_exp (
-            trans_parenthesized_expression (Run.matcher_token v)
-          )
-      | Alt (10, v) ->
-          `Table_cons (
-            trans_table_constructor (Run.matcher_token v)
-          )
-      | Alt (11, v) ->
-          `Bin_exp (
-            trans_binary_expression (Run.matcher_token v)
-          )
-      | Alt (12, v) ->
-          `Un_exp (
-            trans_unary_expression (Run.matcher_token v)
+          `Deep_ellips (
+            trans_deep_ellipsis (Run.matcher_token v)
           )
       | _ -> assert false
       )
