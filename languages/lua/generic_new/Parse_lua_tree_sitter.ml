@@ -111,6 +111,28 @@ let vararg_expression (env : env) tok =
   | Pattern -> G.Ellipsis tok
   | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
 
+(* Lua 5.3+ has integers and floats; the previous translation made every
+ * number a Float. LuaJIT adds the 64-bit integer suffixes LL and ULL and
+ * the imaginary suffix i. *)
+let map_number (env : env) (tok : CST.number) : G.expr =
+  let s, t = str env tok in
+  let lower = String.lowercase_ascii s in
+  let is_hex = String.starts_with ~prefix:"0x" lower in
+  let literal =
+    if String.ends_with ~suffix:"i" lower then G.Imag (s, t)
+    else if String.ends_with ~suffix:"ll" lower then
+      let digits = Str.global_replace (Str.regexp "[uU]?[lL][lL]$") "" s in
+      G.Int (Parsed_int.parse (digits, t))
+    else
+      let is_float =
+        if is_hex then String.contains lower '.' || String.contains lower 'p'
+        else String.contains lower '.' || String.contains lower 'e'
+      in
+      if is_float then G.Float (float_of_string_opt s, t)
+      else G.Int (Parsed_int.parse (s, t))
+  in
+  G.L literal |> G.e
+
 (* The content of a long string such as [[x]] or [==[x]==]: a newline right
  * after the opening bracket is not part of the string, and each line break,
  * \r\n, \n\r, \n or \r, is a \n. *)
@@ -225,7 +247,7 @@ let rec map_expression (env : env) (x : CST.expression) : G.expr =
       | `Nil tok -> G.L (G.Null (token env tok)) |> G.e (* "nil" *)
       | `False tok -> G.L (G.Bool (false, token env tok)) |> G.e
       | `True tok -> G.L (G.Bool (true, token env tok)) |> G.e
-      | `Num tok -> todo env tok
+      | `Num tok -> map_number env tok
       | `Str x -> map_string env x
       | `Vararg_exp tok -> vararg_expression env (token env tok) |> G.e
       | `Func_defi (v1, v2) ->
