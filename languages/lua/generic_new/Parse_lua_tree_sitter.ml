@@ -47,6 +47,58 @@ let todo (_env : env) _ = failwith "Parse_lua_tree_sitter: not implemented yet"
 let sep_list (x, xs) = x :: List_.map snd xs
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 
+(* local a, b = x gives a = x and b without a value *)
+let mk_vars xs ys =
+  let rec aux xs ys =
+    match (xs, ys) with
+    | [], [] -> []
+    | x :: xs, [] -> (x, G.VarDef G.empty_var) :: aux xs ys
+    | x :: xs, y :: ys ->
+        (x, G.VarDef { G.vinit = Some y; vtype = None; vtok = G.no_sc })
+        :: aux xs ys
+    | [], _y :: _ys -> []
+  in
+  aux xs ys
+
+(* several targets or values are assigned as tuples, as in Python:
+ * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
+ * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
+ * first value and not a tuple *)
+let assign (targets : G.expr list) (equal : Tok.t) (values : G.expr list) :
+    G.stmt =
+  let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
+  (* a call or ... gives all its values, as do $X and ... in a pattern;
+   * any other expression gives one value *)
+  let multiple_values (e : G.expr) =
+    match e.e with
+    | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
+    | G.Call _
+    | G.Ellipsis _
+    | G.N (G.Id (("...", _), _)) ->
+        true
+    | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
+    | _ -> false
+  in
+  (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
+  let values =
+    let missing = List.length targets - List.length values in
+    let last_gives_all =
+      match List.rev values with
+      | last :: _ -> multiple_values last
+      | [] -> false
+    in
+    if missing > 0 && not last_gives_all then
+      values @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+    else values
+  in
+  let lhs, rhs =
+    match (targets, values) with
+    | [ x ], [ v ] -> (x, v)
+    | _, [ v ] -> (tuple targets, v)
+    | _, _ -> (tuple targets, tuple values)
+  in
+  G.ExprStmt (G.Assign (lhs, equal, rhs) |> G.e, G.sc) |> G.s
+
 (*****************************************************************************)
 (* Expressions *)
 (*****************************************************************************)
@@ -221,7 +273,11 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
   | `Choice_empty_stmt x -> (
       match x with
       | `Empty_stmt _tok -> [] (* ";" *)
-      | `Assign_stmt x -> todo env x
+      | `Assign_stmt (v1, v2, v3) ->
+          let targets = List_.map (map_variable env) (sep_list v1) in
+          let equal = token env v2 (* "=" *) in
+          let values = map_expression_list env v3 in
+          [ assign targets equal values ]
       | `Func_call x -> [ G.ExprStmt (map_function_call env x, G.sc) |> G.s ]
       | `Label_stmt (v1, v2, v3) ->
           let _v1 = token env v1 (* "::" *) in
@@ -235,12 +291,87 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           [ G.Goto (v1, v2, G.sc) |> G.s ]
       | `Do_stmt (v1, v2, v3) ->
           [ G.Block (token env v1, map_block env v2, token env v3) |> G.s ]
-      | `While_stmt x -> todo env x
-      | `Repeat_stmt x -> todo env x
-      | `If_stmt x -> todo env x
+      | `While_stmt (v1, v2, v3, v4, v5) ->
+          let v1 = token env v1 (* "while" *) in
+          let v2 = map_expression env v2 in
+          let block = G.Block (token env v3, map_block env v4, token env v5) in
+          [ G.While (v1, G.Cond v2, block |> G.s) |> G.s ]
+      | `Repeat_stmt (v1, v2, v3, v4) ->
+          let t = token env v1 (* "repeat" *) in
+          let until = token env v3 (* "until" *) in
+          let block = G.Block (t, map_block env v2, until) |> G.s in
+          let v4 = map_expression env v4 in
+          (* the loop goes on while the until condition is false *)
+          let not_ = G.IdSpecial (G.Op G.Not, until) |> G.e in
+          let cond = G.Call (not_, fb [ G.Arg v4 ]) |> G.e in
+          [ G.DoWhile (t, block, cond) |> G.s ]
+      | `If_stmt (v1, v2, v3, v4, v5, v6, v7) ->
+          let v1 = token env v1 (* "if" *) in
+          let v2 = map_expression env v2 in
+          let _v3 = token env v3 (* "then" *) in
+          let then_ = G.Block (fb (map_block env v4)) |> G.s in
+          let else_ =
+            v6
+            |> Option.map (fun (v1, v2) ->
+                   let _v1 = token env v1 (* "else" *) in
+                   G.Block (fb (map_block env v2)) |> G.s)
+          in
+          (* each elseif is the else branch of the one before it, the else is
+           * the else branch of the last one *)
+          let elseifs =
+            List.fold_right
+              (fun ((v1, v2, v3, v4) : CST.elseif_statement)
+                   (acc : G.stmt option) ->
+                let v1 = token env v1 (* "elseif" *) in
+                let v2 = map_expression env v2 in
+                let _v3 = token env v3 (* "then" *) in
+                let then_ = G.Block (fb (map_block env v4)) |> G.s in
+                Some (G.If (v1, G.Cond v2, then_, acc) |> G.s))
+              v5 else_
+          in
+          let _v7 = token env v7 (* "end" *) in
+          [ G.If (v1, G.Cond v2, then_, elseifs) |> G.s ]
       | `For_stmt x -> todo env x
-      | `Decl x -> todo env x)
+      | `Decl x -> map_declaration env x)
   | `Semg_ellips_stmt x -> todo env x
+
+and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
+  match x with
+  | `Func_decl x -> todo env x
+  | `Local_func_decl x -> todo env x
+  | `Var_decl (v1, v2) ->
+      let local = token env v1 (* "local" *) in
+      map_variable_declaration env (G.KeywordAttr (G.Static, local)) v2
+  | `Global_func_decl x -> todo env x
+  | `Global_var_decl x -> todo env x
+  | `Global_impl_var_decl x -> todo env x
+
+(* local a, b [= x, y] *)
+and map_variable_declaration (env : env) (kind : G.attribute)
+    (x : CST.anon_choice_att_name_list_26e8983) : G.stmt list =
+  let names, values =
+    match x with
+    | `Att_name_list x -> (x, [])
+    | `Var_assign (v1, v2, v3) ->
+        let _v2 = token env v2 (* "=" *) in
+        (v1, map_expression_list env v3)
+  in
+  let entities = map_att_name_list env kind names in
+  mk_vars entities values |> List_.map (fun x -> G.DefStmt x |> G.s)
+
+(* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
+and map_att_name_list (env : env) (kind : G.attribute)
+    ((v1, v2, v3, v4) : CST.att_name_list) : G.entity list =
+  let attrib x =
+    match x with
+    | None -> []
+    | Some x -> todo env x
+  in
+  let prefix = attrib v1 in
+  (v2, v3) :: List_.map (fun (_comma, id, attr) -> (id, attr)) v4
+  |> List_.map (fun (id, attr) ->
+         G.basic_entity (identifier env id)
+           ~attrs:((kind :: prefix) @ attrib attr))
 
 (*****************************************************************************)
 (* Entry point *)
