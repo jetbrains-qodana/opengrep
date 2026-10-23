@@ -24,6 +24,8 @@ type escape_sequence = Token.t
 
 type hash_bang_line = Token.t (* pattern #.* *)
 
+type quote_string = Token.t
+
 type imm_tok_prec_p1_pat_3a2a380 = Token.t (* pattern "[^\"\\\\]+" *)
 
 type block_string_start = Token.t
@@ -57,20 +59,6 @@ type function_name_prefix_expression = [
     )
 ]
 
-type doublequote_string_content =
-  [
-      `Imm_tok_prec_p1_pat_3a2a380 of imm_tok_prec_p1_pat_3a2a380
-    | `Esc_seq of escape_sequence (*tok*)
-  ]
-    list (* one or more *)
-
-type singlequote_string_content =
-  [
-      `Imm_tok_prec_p1_pat_dc28280 of imm_tok_prec_p1_pat_dc28280
-    | `Esc_seq of escape_sequence (*tok*)
-  ]
-    list (* one or more *)
-
 type att_name_list = (
     attrib option
   * identifier (*tok*)
@@ -79,16 +67,11 @@ type att_name_list = (
       list (* zero or more *)
 )
 
-type quote_string = [
-    `DQUOT_opt_doub_str_content_DQUOT of (
-        Token.t (* "\"" *)
-      * doublequote_string_content option
-      * Token.t (* "\"" *)
-    )
-  | `SQUOT_opt_sing_str_content_SQUOT of (
-        Token.t (* "'" *)
-      * singlequote_string_content option
-      * Token.t (* "'" *)
+type string_ = [
+    `Quote_str of quote_string (*tok*)
+  | `Blk_str of (
+        block_string_start (*tok*) * block_string_content (*tok*)
+      * block_string_end (*tok*)
     )
 ]
 
@@ -97,14 +80,6 @@ type function_name = [
   | `Func_name_meth_index_exp of (
         function_name_prefix_expression * Token.t (* ":" *)
       * identifier (*tok*)
-    )
-]
-
-type string_ = [
-    `Quote_str of quote_string
-  | `Blk_str of (
-        block_string_start (*tok*) * block_string_content (*tok*)
-      * block_string_end (*tok*)
     )
 ]
 
@@ -419,6 +394,20 @@ type vararg_expression (* inlined *) = Token.t (* "..." *)
 type function_name_dot_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
 )
+
+type doublequote_string_content (* inlined *) =
+  [
+      `Imm_tok_prec_p1_pat_3a2a380 of imm_tok_prec_p1_pat_3a2a380
+    | `Esc_seq of escape_sequence (*tok*)
+  ]
+    list (* one or more *)
+
+type singlequote_string_content (* inlined *) =
+  [
+      `Imm_tok_prec_p1_pat_dc28280 of imm_tok_prec_p1_pat_dc28280
+    | `Esc_seq of escape_sequence (*tok*)
+  ]
+    list (* one or more *)
 
 type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
 

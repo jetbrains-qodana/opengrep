@@ -49,6 +49,17 @@ module.exports = grammar(standard_grammar, {
       $._vararg_parameter,
     ),
 
+    // Short strings are single tokens. Upstream, the content of a short
+    // string is made of several tokens and the external scanner can
+    // recognize a comment, which is an extra, between them: '"--[[x"'
+    // started a block comment that hid the code up to the next ']]'.
+    // As in Lua, a line break must be escaped ('\' or '\z'), which also
+    // keeps the error recovery from making a string of several lines.
+    _quote_string: _ => token(choice(
+      seq('"', repeat(choice(/[^"\\\r\n]+/, /\\z\s*/, /\\(.|\r?\n)/)), '"'),
+      seq("'", repeat(choice(/[^'\\\r\n]+/, /\\z\s*/, /\\(.|\r?\n)/)), "'"),
+    )),
+
     // Metavariables. Upstream identifiers already accept '$' ('$X'), we add
     // metavariable ellipses ('$...ARGS'). 'identifier' is the word token
     // (used for keyword extraction), so it must remain a single token: the

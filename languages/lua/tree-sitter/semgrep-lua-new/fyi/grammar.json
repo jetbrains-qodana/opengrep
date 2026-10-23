@@ -1819,113 +1819,78 @@
       ]
     },
     "_quote_string": {
-      "type": "CHOICE",
-      "members": [
-        {
-          "type": "SEQ",
-          "members": [
-            {
-              "type": "FIELD",
-              "name": "start",
-              "content": {
-                "type": "ALIAS",
+      "type": "TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "\""
+              },
+              {
+                "type": "REPEAT",
                 "content": {
-                  "type": "STRING",
-                  "value": "\""
-                },
-                "named": false,
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "PATTERN",
+                      "value": "[^\"\\\\\\r\\n]+"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "\\\\z\\s*"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "\\\\(.|\\r?\\n)"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "STRING",
                 "value": "\""
               }
-            },
-            {
-              "type": "FIELD",
-              "name": "content",
-              "content": {
-                "type": "CHOICE",
-                "members": [
-                  {
-                    "type": "ALIAS",
-                    "content": {
-                      "type": "SYMBOL",
-                      "name": "_doublequote_string_content"
+            ]
+          },
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "'"
+              },
+              {
+                "type": "REPEAT",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "PATTERN",
+                      "value": "[^'\\\\\\r\\n]+"
                     },
-                    "named": true,
-                    "value": "string_content"
-                  },
-                  {
-                    "type": "BLANK"
-                  }
-                ]
-              }
-            },
-            {
-              "type": "FIELD",
-              "name": "end",
-              "content": {
-                "type": "ALIAS",
-                "content": {
-                  "type": "STRING",
-                  "value": "\""
-                },
-                "named": false,
-                "value": "\""
-              }
-            }
-          ]
-        },
-        {
-          "type": "SEQ",
-          "members": [
-            {
-              "type": "FIELD",
-              "name": "start",
-              "content": {
-                "type": "ALIAS",
-                "content": {
-                  "type": "STRING",
-                  "value": "'"
-                },
-                "named": false,
+                    {
+                      "type": "PATTERN",
+                      "value": "\\\\z\\s*"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "\\\\(.|\\r?\\n)"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "STRING",
                 "value": "'"
               }
-            },
-            {
-              "type": "FIELD",
-              "name": "content",
-              "content": {
-                "type": "CHOICE",
-                "members": [
-                  {
-                    "type": "ALIAS",
-                    "content": {
-                      "type": "SYMBOL",
-                      "name": "_singlequote_string_content"
-                    },
-                    "named": true,
-                    "value": "string_content"
-                  },
-                  {
-                    "type": "BLANK"
-                  }
-                ]
-              }
-            },
-            {
-              "type": "FIELD",
-              "name": "end",
-              "content": {
-                "type": "ALIAS",
-                "content": {
-                  "type": "STRING",
-                  "value": "'"
-                },
-                "named": false,
-                "value": "'"
-              }
-            }
-          ]
-        }
-      ]
+            ]
+          }
+        ]
+      }
     },
     "_doublequote_string_content": {
       "type": "REPEAT1",

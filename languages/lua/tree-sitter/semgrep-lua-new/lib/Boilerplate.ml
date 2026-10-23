@@ -50,6 +50,9 @@ let map_escape_sequence (env : env) (tok : CST.escape_sequence) =
 let map_hash_bang_line (env : env) (tok : CST.hash_bang_line) =
   (* pattern #.* *) token env tok
 
+let map_quote_string (env : env) (tok : CST.quote_string) =
+  (* quote_string *) token env tok
+
 let map_imm_tok_prec_p1_pat_3a2a380 (env : env) (tok : CST.imm_tok_prec_p1_pat_3a2a380) =
   (* pattern "[^\"\\\\]+" *) token env tok
 
@@ -109,30 +112,6 @@ let rec map_function_name_prefix_expression (env : env) (x : CST.function_name_p
     )
   )
 
-let map_doublequote_string_content (env : env) (xs : CST.doublequote_string_content) =
-  R.List (List.map (fun x ->
-    (match x with
-    | `Imm_tok_prec_p1_pat_3a2a380 x -> R.Case ("Imm_tok_prec_p1_pat_3a2a380",
-        map_imm_tok_prec_p1_pat_3a2a380 env x
-      )
-    | `Esc_seq tok -> R.Case ("Esc_seq",
-        (* escape_sequence *) token env tok
-      )
-    )
-  ) xs)
-
-let map_singlequote_string_content (env : env) (xs : CST.singlequote_string_content) =
-  R.List (List.map (fun x ->
-    (match x with
-    | `Imm_tok_prec_p1_pat_dc28280 x -> R.Case ("Imm_tok_prec_p1_pat_dc28280",
-        map_imm_tok_prec_p1_pat_dc28280 env x
-      )
-    | `Esc_seq tok -> R.Case ("Esc_seq",
-        (* escape_sequence *) token env tok
-      )
-    )
-  ) xs)
-
 let map_att_name_list (env : env) ((v1, v2, v3, v4) : CST.att_name_list) =
   let v1 =
     (match v1 with
@@ -165,30 +144,15 @@ let map_att_name_list (env : env) ((v1, v2, v3, v4) : CST.att_name_list) =
   in
   R.Tuple [v1; v2; v3; v4]
 
-let map_quote_string (env : env) (x : CST.quote_string) =
+let map_string_ (env : env) (x : CST.string_) =
   (match x with
-  | `DQUOT_opt_doub_str_content_DQUOT (v1, v2, v3) -> R.Case ("DQUOT_opt_doub_str_content_DQUOT",
-      let v1 = (* "\"" *) token env v1 in
-      let v2 =
-        (match v2 with
-        | Some x -> R.Option (Some (
-            map_doublequote_string_content env x
-          ))
-        | None -> R.Option None)
-      in
-      let v3 = (* "\"" *) token env v3 in
-      R.Tuple [v1; v2; v3]
+  | `Quote_str tok -> R.Case ("Quote_str",
+      (* quote_string *) token env tok
     )
-  | `SQUOT_opt_sing_str_content_SQUOT (v1, v2, v3) -> R.Case ("SQUOT_opt_sing_str_content_SQUOT",
-      let v1 = (* "'" *) token env v1 in
-      let v2 =
-        (match v2 with
-        | Some x -> R.Option (Some (
-            map_singlequote_string_content env x
-          ))
-        | None -> R.Option None)
-      in
-      let v3 = (* "'" *) token env v3 in
+  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
+      let v1 = (* block_string_start *) token env v1 in
+      let v2 = (* block_string_content *) token env v2 in
+      let v3 = (* block_string_end *) token env v3 in
       R.Tuple [v1; v2; v3]
     )
   )
@@ -202,19 +166,6 @@ let map_function_name (env : env) (x : CST.function_name) =
       let v1 = map_function_name_prefix_expression env v1 in
       let v2 = (* ":" *) token env v2 in
       let v3 = (* identifier *) token env v3 in
-      R.Tuple [v1; v2; v3]
-    )
-  )
-
-let map_string_ (env : env) (x : CST.string_) =
-  (match x with
-  | `Quote_str x -> R.Case ("Quote_str",
-      map_quote_string env x
-    )
-  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
-      let v1 = (* block_string_start *) token env v1 in
-      let v2 = (* block_string_content *) token env v2 in
-      let v3 = (* block_string_end *) token env v3 in
       R.Tuple [v1; v2; v3]
     )
   )

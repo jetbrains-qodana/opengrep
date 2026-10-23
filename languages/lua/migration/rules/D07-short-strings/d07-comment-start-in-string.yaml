@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d07-comment-start-in-string
+    languages: [lua]
+    severity: INFO
+    message: 'D07: ''--[['' inside a string does not start a comment'
+    pattern: d07_after()

@@ -146,37 +146,14 @@ let long_string_content s =
   if String.starts_with ~prefix:"\n" s then Str.string_after s 1 else s
 
 (* The value of a short string is its source text between the quotes:
- * escape sequences are kept as they are, as with the previous grammar. *)
+ * escape sequences are kept as they are, as with the previous grammar.
+ * A short string is a single token (see grammar/semgrep-lua/grammar.js). *)
 let map_string (env : env) (x : CST.string_) : G.expr =
-  let quoted l (parts : (string * Tok.t) list) r =
-    let l = token env l and r = token env r in
-    let content =
-      match parts with
-      | [] -> ("", Tok.empty_tok_after l)
-      | (s, t) :: xs ->
-          (String.concat "" (s :: List_.map fst xs), Tok.combine_toks t (List_.map snd xs))
-    in
-    G.L (G.String (l, content, r)) |> G.e
-  in
   match x with
-  | `Quote_str (`DQUOT_opt_doub_str_content_DQUOT (v1, v2, v3)) ->
-      let parts =
-        Option.value ~default:[] v2
-        |> List_.map (function
-             | `Imm_tok_prec_p1_pat_3a2a380 tok
-             | `Esc_seq tok ->
-                 str env tok)
-      in
-      quoted v1 parts v3
-  | `Quote_str (`SQUOT_opt_sing_str_content_SQUOT (v1, v2, v3)) ->
-      let parts =
-        Option.value ~default:[] v2
-        |> List_.map (function
-             | `Imm_tok_prec_p1_pat_dc28280 tok
-             | `Esc_seq tok ->
-                 str env tok)
-      in
-      quoted v1 parts v3
+  | `Quote_str tok ->
+      let s, t = str env tok in
+      let content = String.sub s 1 (String.length s - 2) in
+      G.L (G.String (fb (content, t))) |> G.e
   | `Blk_str (v1, v2, v3) ->
       let v1 = token env v1 (* "[[" *) in
       let s, t = str env v2 in

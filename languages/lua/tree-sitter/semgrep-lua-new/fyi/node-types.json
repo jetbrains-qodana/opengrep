@@ -472,25 +472,6 @@
     }
   },
   {
-    "type": "doublequote_string_content",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "escape_sequence",
-          "named": true
-        },
-        {
-          "type": "imm_tok_prec_p1_pat_3a2a380",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "else_statement",
     "named": true,
     "fields": {
@@ -1273,54 +1254,6 @@
     }
   },
   {
-    "type": "quote_string",
-    "named": true,
-    "fields": {
-      "content": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "doublequote_string_content",
-            "named": true
-          },
-          {
-            "type": "singlequote_string_content",
-            "named": true
-          }
-        ]
-      },
-      "end": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "\"",
-            "named": false
-          },
-          {
-            "type": "'",
-            "named": false
-          }
-        ]
-      },
-      "start": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "\"",
-            "named": false
-          },
-          {
-            "type": "'",
-            "named": false
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "repeat_statement",
     "named": true,
     "fields": {
@@ -1386,25 +1319,6 @@
       "types": [
         {
           "type": "expression",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "singlequote_string_content",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "escape_sequence",
-          "named": true
-        },
-        {
-          "type": "imm_tok_prec_p1_pat_dc28280",
           "named": true
         }
       ]
@@ -1706,10 +1620,6 @@
     }
   },
   {
-    "type": "\"",
-    "named": false
-  },
-  {
     "type": "#",
     "named": false
   },
@@ -1719,10 +1629,6 @@
   },
   {
     "type": "&",
-    "named": false
-  },
-  {
-    "type": "'",
     "named": false
   },
   {
@@ -1955,6 +1861,10 @@
   },
   {
     "type": "pat_f630af3",
+    "named": true
+  },
+  {
+    "type": "quote_string",
     "named": true
   },
   {
