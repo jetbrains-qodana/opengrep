@@ -134,7 +134,10 @@ let map_parameter (env : env) (x : CST.parameter) : G.parameter =
   match x with
   | `Id tok -> G.Param (G.param_of_id (identifier env tok))
   | `Vararg_param (v1, None) -> vararg_parameter env (token env v1) (* "..." *)
-  | `Vararg_param (v1, Some v2) -> todo env (v1, v2)
+  (* Lua 5.5 named vararg, 'function f(...args)': args is a table of the
+   * extra arguments, like a rest parameter in JS *)
+  | `Vararg_param (v1, Some v2) ->
+      G.ParamRest (token env v1, G.param_of_id (identifier env v2))
 
 let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
   let lp = token env v1 (* "(" *) in
