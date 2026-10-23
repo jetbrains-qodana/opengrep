@@ -3,7 +3,11 @@ rules:
     languages: [lua]
     severity: INFO
     message: 'D22: generic for with one variable'
-    pattern: |
-      for $X in $IT do
-        ...
-      end
+    patterns:
+      - pattern: |
+          for $X in $IT do
+            ...
+          end
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^line$
