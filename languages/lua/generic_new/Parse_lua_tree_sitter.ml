@@ -230,7 +230,9 @@ and map_prefix_expression (env : env) (x : CST.prefix_expression) : G.expr =
 
 and map_variable (env : env) (x : CST.variable) : G.expr =
   match x with
-  | `Cont_kw tok -> todo env tok
+  (* 'global' is a keyword only at the start of a declaration (Lua 5.5),
+   * elsewhere it is a name *)
+  | `Cont_kw tok -> G.N (G.Id (identifier env tok, G.empty_id_info ())) |> G.e
   | `Id tok -> G.N (G.Id (identifier env tok, G.empty_id_info ())) |> G.e
   | `Brac_index_exp (v1, v2, v3, v4) ->
       let v1 = map_prefix_expression env v1 in
@@ -312,8 +314,9 @@ and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
   | `Choice_cont_kw_EQ_exp (v1, v2, v3) ->
       let v1 =
         match v1 with
-        | `Cont_kw tok -> todo env tok
-        | `Id tok -> identifier env tok
+        | `Cont_kw tok (* "global" *)
+        | `Id tok ->
+            identifier env tok
       in
       let v2 = token env v2 (* "=" *) in
       let v3 = map_expression env v3 in
