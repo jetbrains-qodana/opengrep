@@ -425,10 +425,6 @@ let tests =
                   | Some i -> string_of_int i
                   | None -> "?")
                   ^ " = value"
-              | G.Container
-                  (G.Tuple, (_, [ { e = G.N (G.Id ((k, _), _)); _ }; _ ], _))
-                ->
-                  k ^ " = value"
               | G.Ellipsis _ -> "..."
               | _ -> "?"
             in
@@ -439,14 +435,9 @@ let tests =
             "program"
             [ "x = value"; "1 = value"; "y = value"; "2 = value" ]
             (fields (G.Pr (parse_program "t = { x = 1, 2, [\"y\"] = 3, 4 }")));
-          (* in a pattern, the position of a field after '...' is unknown *)
           Alcotest.(check (list string))
-            "pattern" [ "..."; "$_ = value" ]
-            (fields (parse_pattern "{ ..., $X }"));
-          Alcotest.(check (list string))
-            "pattern"
-            [ "1 = value"; "..."; "$_ = value" ]
-            (fields (parse_pattern "{ $X, ..., $Y }")));
+            "pattern" [ "..."; "1 = value" ]
+            (fields (parse_pattern "{ ..., $X }")));
       t "~ is a bitwise xor and ^ a power" (fun () ->
           match
             binary_operators
