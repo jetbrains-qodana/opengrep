@@ -213,6 +213,52 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "self refers to the self parameter" (fun () ->
+          let resolved = ref [] in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_expr env e =
+                (match e.e with
+                | G.N (G.Id (("self", _), info)) ->
+                    resolved := Option.is_some !(info.id_resolved) :: !resolved
+                | _ -> ());
+                super#visit_expr env e
+            end
+          in
+          visitor#visit_program ()
+            (parse_program "function T:m() return self end");
+          Alcotest.(check (list bool)) "self" [ true ] !resolved);
+      t "self outside a method is a plain name" (fun () ->
+          (* self! for a self resolved by Naming_AST *)
+          let selves code =
+            let selves = ref [] in
+            let visitor =
+              object
+                inherit [_] G.iter as super
+
+                method! visit_expr env e =
+                  (match e.e with
+                  | G.N (G.Id (("self", _), info)) ->
+                      selves :=
+                        (if Option.is_some !(info.id_resolved) then "self!"
+                         else "self")
+                        :: !selves
+                  | G.IdSpecial (G.Self, _) -> selves := "special" :: !selves
+                  | _ -> ());
+                  super#visit_expr env e
+              end
+            in
+            visitor#visit_program () (parse_program code);
+            List.rev !selves
+          in
+          Alcotest.(check (list string))
+            "function" [ "self" ]
+            (selves "function f() return self end");
+          Alcotest.(check (list string))
+            "local" [ "self!" ]
+            (selves "local self = {}\nreturn self"));
       t "repeat until loops while the condition is false" (fun () ->
           match (first_statement "repeat x() until c").s with
           | G.DoWhile
@@ -297,6 +343,30 @@ let tests =
                  (* the main chunk of Lua takes varargs *)
                  "a, b = ...";
                ]));
+      t "the body of a function goes from its parameters to its end"
+        (fun () ->
+          let bodies = ref [] in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_function_definition env def =
+                (match def.fbody with
+                | G.FBStmt { s = G.Block (l, _, r); _ } ->
+                    bodies :=
+                      (Tok.content_of_tok l ^ " " ^ Tok.content_of_tok r)
+                      :: !bodies
+                | _ -> ());
+                super#visit_function_definition env def
+            end
+          in
+          visitor#visit_program ()
+            (parse_program
+               "function f(a) end\n\
+                local function g() end\n\
+                h = function(...) end");
+          Alcotest.(check (list string))
+            "bodies" [ ") end"; ") end"; ") end" ] (List.rev !bodies));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in

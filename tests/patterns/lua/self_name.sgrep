@@ -1,0 +1,3 @@
+function $T.$M($S)
+  return $S
+end
