@@ -172,7 +172,7 @@ let rec map_expression (env : env) (x : CST.expression) : G.expr =
       | `Var x -> map_variable env x
       | `Func_call x -> map_function_call env x
       | `Paren_exp x -> map_parenthesized_expression env x
-      | `Table_cons x -> todo env x
+      | `Table_cons x -> map_table_constructor env x
       | `Bin_exp x ->
           let v1, op, v2, v3 = binary_operator x in
           let v1 = map_expression env v1 in
@@ -256,11 +256,58 @@ and map_arguments (env : env) (x : CST.arguments) : G.arguments =
       in
       let v3 = token env v3 (* ")" *) in
       (v1, v2, v3)
-  | `Table_cons x -> todo env x
+  | `Table_cons x -> fb [ G.Arg (map_table_constructor env x) ]
   | `Str x -> todo env x
 
 and map_expression_list (env : env) (x : CST.expression_list) : G.expr list =
   List_.map (map_expression env) (sep_list x)
+
+(* a table constructor is a dictionary, as in Python: a field is a key-value
+ * pair *)
+and map_table_constructor (env : env) ((v1, v2, v3) : CST.table_constructor) :
+    G.expr =
+  let v1 = token env v1 (* "{" *) in
+  let fields =
+    match v2 with
+    | Some (v1, v2, _v3) ->
+        (* the positional fields get the next integer key, from 1 *)
+        let positions = ref 0 in
+        let first = map_field env positions v1 in
+        first :: List_.map (fun (_sep, x) -> map_field env positions x) v2
+    | None -> []
+  in
+  let v3 = token env v3 (* "}" *) in
+  G.Container (G.Dict, (v1, fields, v3)) |> G.e
+
+and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
+  match x with
+  | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
+      let _v1 = token env v1 (* "[" *) in
+      let v2 = map_expression env v2 in
+      let _v3 = token env v3 (* "]" *) in
+      let v4 = token env v4 (* "=" *) in
+      let v5 = map_expression env v5 in
+      G.keyval v2 v4 v5
+  | `Choice_cont_kw_EQ_exp (v1, v2, v3) ->
+      let v1 =
+        match v1 with
+        | `Cont_kw tok -> todo env tok
+        | `Id tok -> identifier env tok
+      in
+      let v2 = token env v2 (* "=" *) in
+      let v3 = map_expression env v3 in
+      (* x = v is ["x"] = v *)
+      G.keyval (G.L (G.String (fb v1)) |> G.e) v2 v3
+  | `Exp x -> (
+      let v = map_expression env x in
+      match v.e with
+      (* an ellipsis in a pattern stands for fields, not for a value *)
+      | G.Ellipsis _ -> v
+      | _ ->
+          (* { a, b } is { [1] = a, [2] = b } *)
+          incr positions;
+          let key = G.L (G.Int (Parsed_int.of_int !positions)) |> G.e in
+          G.keyval key (G.fake "=") v)
 
 (* the body is a block delimited by the 'function' and 'end' tokens *)
 and map_function_body (env : env) ((v1, v2, v3) : CST.function_body)
