@@ -1,0 +1,11 @@
+rules:
+  - id: lua-method-implicit-self
+    message: |
+      'function T:m()' has an implicit parameter, which must not be
+      required to appear in the target by the rule prefilter
+    languages: [lua]
+    severity: INFO
+    pattern: |
+      function T:m()
+        ...
+      end
