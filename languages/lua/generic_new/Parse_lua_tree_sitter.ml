@@ -12,6 +12,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the file
  * LICENSE for more details.
  *)
+open Common
 open Fpath_.Operators
 module CST = Tree_sitter_lua_new.CST
 module H = Parse_tree_sitter_helpers
@@ -191,7 +192,11 @@ let rec map_expression (env : env) (x : CST.expression) : G.expr =
           let v2 = map_expression env v2 in
           G.Call (G.IdSpecial (G.Op op, token env tok) |> G.e, fb [ G.Arg v2 ])
           |> G.e)
-  | `Deep_ellips x -> todo env x
+  | `Deep_ellips (v1, v2, v3) ->
+      let v1 = token env v1 (* "<..." *) in
+      let v2 = map_expression env v2 in
+      let v3 = token env v3 (* "...>" *) in
+      G.DeepEllipsis (v1, v2, v3) |> G.e
 
 (* the parentheses are dropped, as with the previous grammar *)
 and map_parenthesized_expression (env : env)
@@ -426,7 +431,8 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           let block = G.Block (token env v3, map_block env v4, token env v5) in
           [ G.For (v1, header, block |> G.s) |> G.s ]
       | `Decl x -> map_declaration env x)
-  | `Semg_ellips_stmt x -> todo env x
+  | `Semg_ellips_stmt tok ->
+      [ G.ExprStmt (G.Ellipsis (token env tok) |> G.e, G.sc) |> G.s ]
 
 (* for k, v in e1, e2, e3 *)
 and map_for_generic_clause (env : env) ((v1, v2, v3) : CST.for_generic_clause)
@@ -542,7 +548,7 @@ let map_chunk (env : env) (x : CST.chunk) : G.any =
       G.Ss
         (map_statements env stmts
         @ Option.to_list (Option.map (map_return env) ret))
-  | `Semg_exp x -> todo env x
+  | `Semg_exp (_v1, v2) -> G.E (map_expression env v2)
 
 let parse file =
   H.wrap_parser
@@ -553,9 +559,22 @@ let parse file =
       | G.Ss xs -> xs
       | _ -> failwith "not a program")
 
+(* A pattern is parsed as statements, or as an expression if that fails:
+ * unlike in the previous grammar, an expression such as '$X + 1' is not a
+ * statement. *)
+let parse_statements_or_expression str =
+  let res = Tree_sitter_lua_new.Parse.string str in
+  match res.errors with
+  | [] -> res
+  | _ ->
+      let expr_res =
+        Tree_sitter_lua_new.Parse.string ("__SEMGREP_EXPRESSION " ^ str)
+      in
+      if expr_res.errors =*= [] then expr_res else res
+
 let parse_pattern str =
   H.wrap_parser
-    (fun () -> Tree_sitter_lua_new.Parse.string str)
+    (fun () -> parse_statements_or_expression str)
     (fun cst _extras ->
       let file = Fpath.v "<pattern>" in
       let env =
