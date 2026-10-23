@@ -79,8 +79,6 @@ type att_name_list = (
       list (* zero or more *)
 )
 
-type vararg_parameter = (Token.t (* "..." *) * identifier (*tok*) option)
-
 type quote_string = [
     `DQUOT_opt_doub_str_content_DQUOT of (
         Token.t (* "\"" *)
@@ -94,11 +92,21 @@ type quote_string = [
     )
 ]
 
+type vararg_parameter = (Token.t (* "..." *) * identifier (*tok*) option)
+
 type function_name = [
     `Func_name_prefix_exp of function_name_prefix_expression
   | `Func_name_meth_index_exp of (
         function_name_prefix_expression * Token.t (* ":" *)
       * identifier (*tok*)
+    )
+]
+
+type string_ = [
+    `Quote_str of quote_string
+  | `Blk_str of (
+        block_string_start (*tok*) * block_string_content (*tok*)
+      * block_string_end (*tok*)
     )
 ]
 
@@ -109,14 +117,6 @@ type parameter_list = [
       * (Token.t (* "," *) * vararg_parameter) option
     )
   | `Vararg_param of vararg_parameter
-]
-
-type string_ = [
-    `Quote_str of quote_string
-  | `Blk_str of (
-        block_string_start (*tok*) * block_string_content (*tok*)
-      * block_string_end (*tok*)
-    )
 ]
 
 type parameters = (
@@ -385,11 +385,14 @@ and while_statement = (
   * Token.t (* "end" *)
 )
 
-type chunk = (
-    hash_bang_line (*tok*) option
-  * statement list (* zero or more *)
-  * return_statement option
-)
+type chunk = [
+    `Opt_hash_bang_line_rep_stmt_opt_ret_stmt of (
+        hash_bang_line (*tok*) option
+      * statement list (* zero or more *)
+      * return_statement option
+    )
+  | `Semg_exp of (Token.t (* "__SEMGREP_EXPRESSION" *) * expression)
+]
 
 type nil (* inlined *) = Token.t (* "nil" *)
 
@@ -399,17 +402,15 @@ type contextual_keyword (* inlined *) = Token.t (* "global" *)
 
 type false_ (* inlined *) = Token.t (* "false" *)
 
+type true_ (* inlined *) = Token.t (* "true" *)
+
 type vararg_expression (* inlined *) = Token.t (* "..." *)
 
 type break_statement (* inlined *) = Token.t (* "break" *)
 
-type true_ (* inlined *) = Token.t (* "true" *)
-
 type function_name_dot_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
 )
-
-type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
 
 type comment (* inlined *) = [
     `DASHDASH_pat_f630af3 of (Token.t (* "--" *) * pat_f630af3)
@@ -418,6 +419,8 @@ type comment (* inlined *) = [
       * block_comment_end (*tok*)
     )
 ]
+
+type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
 
 type block_string (* inlined *) = (
     block_string_start (*tok*) * block_string_content (*tok*)
@@ -480,6 +483,10 @@ type variable_assignment (* inlined *) = (
 
 type variable_declaration (* inlined *) = (
     Token.t (* "local" *) * anon_choice_att_name_list_26e8983
+)
+
+type semgrep_expression (* inlined *) = (
+    Token.t (* "__SEMGREP_EXPRESSION" *) * expression
 )
 
 type extra = [ `Comment of Loc.t * comment ]

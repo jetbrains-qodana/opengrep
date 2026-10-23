@@ -61,12 +61,12 @@ let children_regexps : (string * Run.exp option) list = [
   "block_string_start", None;
   "contextual_keyword", None;
   "false", None;
-  "vararg_expression", None;
+  "true", None;
   "imm_tok_prec_p1_pat_dc28280", None;
   "pat_f630af3", None;
   "block_comment_start", None;
+  "vararg_expression", None;
   "break_statement", None;
-  "true", None;
   "block_string_content", None;
   "goto_statement",
   Some (
@@ -127,19 +127,6 @@ let children_regexps : (string * Run.exp option) list = [
       |];
     );
   );
-  "semgrep_ellipsis_statement",
-  Some (
-    Token (Name "vararg_expression");
-  );
-  "vararg_parameter",
-  Some (
-    Seq [
-      Token (Name "vararg_expression");
-      Opt (
-        Token (Name "identifier");
-      );
-    ];
-  );
   "singlequote_string_content",
   Some (
     Repeat1 (
@@ -162,6 +149,19 @@ let children_regexps : (string * Run.exp option) list = [
         Token (Name "block_comment_end");
       ];
     |];
+  );
+  "semgrep_ellipsis_statement",
+  Some (
+    Token (Name "vararg_expression");
+  );
+  "vararg_parameter",
+  Some (
+    Seq [
+      Token (Name "vararg_expression");
+      Opt (
+        Token (Name "identifier");
+      );
+    ];
   );
   "block_string",
   Some (
@@ -210,6 +210,25 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "identifier");
     ];
   );
+  "quote_string",
+  Some (
+    Alt [|
+      Seq [
+        Token (Literal "\"");
+        Opt (
+          Token (Name "doublequote_string_content");
+        );
+        Token (Literal "\"");
+      ];
+      Seq [
+        Token (Literal "'");
+        Opt (
+          Token (Name "singlequote_string_content");
+        );
+        Token (Literal "'");
+      ];
+    |];
+  );
   "parameter_list",
   Some (
     Alt [|
@@ -231,30 +250,18 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "vararg_parameter");
     |];
   );
-  "quote_string",
-  Some (
-    Alt [|
-      Seq [
-        Token (Literal "\"");
-        Opt (
-          Token (Name "doublequote_string_content");
-        );
-        Token (Literal "\"");
-      ];
-      Seq [
-        Token (Literal "'");
-        Opt (
-          Token (Name "singlequote_string_content");
-        );
-        Token (Literal "'");
-      ];
-    |];
-  );
   "function_name",
   Some (
     Alt [|
       Token (Name "function_name_prefix_expression");
       Token (Name "function_name_method_index_expression");
+    |];
+  );
+  "string",
+  Some (
+    Alt [|
+      Token (Name "quote_string");
+      Token (Name "block_string");
     |];
   );
   "parameters",
@@ -266,13 +273,6 @@ let children_regexps : (string * Run.exp option) list = [
       );
       Token (Literal ")");
     ];
-  );
-  "string",
-  Some (
-    Alt [|
-      Token (Name "quote_string");
-      Token (Name "block_string");
-    |];
   );
   "arguments",
   Some (
@@ -829,19 +829,29 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Literal "end");
     ];
   );
-  "chunk",
+  "semgrep_expression",
   Some (
     Seq [
-      Opt (
-        Token (Name "hash_bang_line");
-      );
-      Repeat (
-        Token (Name "statement");
-      );
-      Opt (
-        Token (Name "return_statement");
-      );
+      Token (Literal "__SEMGREP_EXPRESSION");
+      Token (Name "expression");
     ];
+  );
+  "chunk",
+  Some (
+    Alt [|
+      Seq [
+        Opt (
+          Token (Name "hash_bang_line");
+        );
+        Repeat (
+          Token (Name "statement");
+        );
+        Opt (
+          Token (Name "return_statement");
+        );
+      ];
+      Token (Name "semgrep_expression");
+    |];
   );
 ]
 
@@ -926,7 +936,7 @@ let trans_false_ ((kind, body) : mt) : CST.false_ =
   | Leaf v -> v
   | Children _ -> assert false
 
-let trans_vararg_expression ((kind, body) : mt) : CST.vararg_expression =
+let trans_true_ ((kind, body) : mt) : CST.true_ =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
@@ -946,12 +956,12 @@ let trans_block_comment_start ((kind, body) : mt) : CST.block_comment_start =
   | Leaf v -> v
   | Children _ -> assert false
 
-let trans_break_statement ((kind, body) : mt) : CST.break_statement =
+let trans_vararg_expression ((kind, body) : mt) : CST.vararg_expression =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
 
-let trans_true_ ((kind, body) : mt) : CST.true_ =
+let trans_break_statement ((kind, body) : mt) : CST.break_statement =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
@@ -1077,27 +1087,6 @@ let trans_doublequote_string_content ((kind, body) : mt) : CST.doublequote_strin
         v
   | Leaf _ -> assert false
 
-let trans_semgrep_ellipsis_statement ((kind, body) : mt) : CST.semgrep_ellipsis_statement =
-  match body with
-  | Children v ->
-      trans_vararg_expression (Run.matcher_token v)
-  | Leaf _ -> assert false
-
-let trans_vararg_parameter ((kind, body) : mt) : CST.vararg_parameter =
-  match body with
-  | Children v ->
-      (match v with
-      | Seq [v0; v1] ->
-          (
-            trans_vararg_expression (Run.matcher_token v0),
-            Run.opt
-              (fun v -> trans_identifier (Run.matcher_token v))
-              v1
-          )
-      | _ -> assert false
-      )
-  | Leaf _ -> assert false
-
 let trans_singlequote_string_content ((kind, body) : mt) : CST.singlequote_string_content =
   match body with
   | Children v ->
@@ -1144,6 +1133,27 @@ let trans_comment ((kind, body) : mt) : CST.comment =
                 )
             | _ -> assert false
             )
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
+let trans_semgrep_ellipsis_statement ((kind, body) : mt) : CST.semgrep_ellipsis_statement =
+  match body with
+  | Children v ->
+      trans_vararg_expression (Run.matcher_token v)
+  | Leaf _ -> assert false
+
+let trans_vararg_parameter ((kind, body) : mt) : CST.vararg_parameter =
+  match body with
+  | Children v ->
+      (match v with
+      | Seq [v0; v1] ->
+          (
+            trans_vararg_expression (Run.matcher_token v0),
+            Run.opt
+              (fun v -> trans_identifier (Run.matcher_token v))
+              v1
           )
       | _ -> assert false
       )
@@ -1230,6 +1240,48 @@ let trans_function_name_method_index_expression ((kind, body) : mt) : CST.functi
       )
   | Leaf _ -> assert false
 
+let trans_quote_string ((kind, body) : mt) : CST.quote_string =
+  match body with
+  | Children v ->
+      (match v with
+      | Alt (0, v) ->
+          `DQUOT_opt_doub_str_content_DQUOT (
+            (match v with
+            | Seq [v0; v1; v2] ->
+                (
+                  Run.trans_token (Run.matcher_token v0),
+                  Run.opt
+                    (fun v ->
+                      trans_doublequote_string_content (Run.matcher_token v)
+                    )
+                    v1
+                  ,
+                  Run.trans_token (Run.matcher_token v2)
+                )
+            | _ -> assert false
+            )
+          )
+      | Alt (1, v) ->
+          `SQUOT_opt_sing_str_content_SQUOT (
+            (match v with
+            | Seq [v0; v1; v2] ->
+                (
+                  Run.trans_token (Run.matcher_token v0),
+                  Run.opt
+                    (fun v ->
+                      trans_singlequote_string_content (Run.matcher_token v)
+                    )
+                    v1
+                  ,
+                  Run.trans_token (Run.matcher_token v2)
+                )
+            | _ -> assert false
+            )
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
 let trans_parameter_list ((kind, body) : mt) : CST.parameter_list =
   match body with
   | Children v ->
@@ -1277,48 +1329,6 @@ let trans_parameter_list ((kind, body) : mt) : CST.parameter_list =
       )
   | Leaf _ -> assert false
 
-let trans_quote_string ((kind, body) : mt) : CST.quote_string =
-  match body with
-  | Children v ->
-      (match v with
-      | Alt (0, v) ->
-          `DQUOT_opt_doub_str_content_DQUOT (
-            (match v with
-            | Seq [v0; v1; v2] ->
-                (
-                  Run.trans_token (Run.matcher_token v0),
-                  Run.opt
-                    (fun v ->
-                      trans_doublequote_string_content (Run.matcher_token v)
-                    )
-                    v1
-                  ,
-                  Run.trans_token (Run.matcher_token v2)
-                )
-            | _ -> assert false
-            )
-          )
-      | Alt (1, v) ->
-          `SQUOT_opt_sing_str_content_SQUOT (
-            (match v with
-            | Seq [v0; v1; v2] ->
-                (
-                  Run.trans_token (Run.matcher_token v0),
-                  Run.opt
-                    (fun v ->
-                      trans_singlequote_string_content (Run.matcher_token v)
-                    )
-                    v1
-                  ,
-                  Run.trans_token (Run.matcher_token v2)
-                )
-            | _ -> assert false
-            )
-          )
-      | _ -> assert false
-      )
-  | Leaf _ -> assert false
-
 let trans_function_name ((kind, body) : mt) : CST.function_name =
   match body with
   | Children v ->
@@ -1330,6 +1340,22 @@ let trans_function_name ((kind, body) : mt) : CST.function_name =
       | Alt (1, v) ->
           `Func_name_meth_index_exp (
             trans_function_name_method_index_expression (Run.matcher_token v)
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
+let trans_string_ ((kind, body) : mt) : CST.string_ =
+  match body with
+  | Children v ->
+      (match v with
+      | Alt (0, v) ->
+          `Quote_str (
+            trans_quote_string (Run.matcher_token v)
+          )
+      | Alt (1, v) ->
+          `Blk_str (
+            trans_block_string (Run.matcher_token v)
           )
       | _ -> assert false
       )
@@ -1347,22 +1373,6 @@ let trans_parameters ((kind, body) : mt) : CST.parameters =
               v1
             ,
             Run.trans_token (Run.matcher_token v2)
-          )
-      | _ -> assert false
-      )
-  | Leaf _ -> assert false
-
-let trans_string_ ((kind, body) : mt) : CST.string_ =
-  match body with
-  | Children v ->
-      (match v with
-      | Alt (0, v) ->
-          `Quote_str (
-            trans_quote_string (Run.matcher_token v)
-          )
-      | Alt (1, v) ->
-          `Blk_str (
-            trans_block_string (Run.matcher_token v)
           )
       | _ -> assert false
       )
@@ -2550,23 +2560,46 @@ and trans_while_statement ((kind, body) : mt) : CST.while_statement =
       )
   | Leaf _ -> assert false
 
+let trans_semgrep_expression ((kind, body) : mt) : CST.semgrep_expression =
+  match body with
+  | Children v ->
+      (match v with
+      | Seq [v0; v1] ->
+          (
+            Run.trans_token (Run.matcher_token v0),
+            trans_expression (Run.matcher_token v1)
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
 let trans_chunk ((kind, body) : mt) : CST.chunk =
   match body with
   | Children v ->
       (match v with
-      | Seq [v0; v1; v2] ->
-          (
-            Run.opt
-              (fun v -> trans_hash_bang_line (Run.matcher_token v))
-              v0
-            ,
-            Run.repeat
-              (fun v -> trans_statement (Run.matcher_token v))
-              v1
-            ,
-            Run.opt
-              (fun v -> trans_return_statement (Run.matcher_token v))
-              v2
+      | Alt (0, v) ->
+          `Opt_hash_bang_line_rep_stmt_opt_ret_stmt (
+            (match v with
+            | Seq [v0; v1; v2] ->
+                (
+                  Run.opt
+                    (fun v -> trans_hash_bang_line (Run.matcher_token v))
+                    v0
+                  ,
+                  Run.repeat
+                    (fun v -> trans_statement (Run.matcher_token v))
+                    v1
+                  ,
+                  Run.opt
+                    (fun v -> trans_return_statement (Run.matcher_token v))
+                    v2
+                )
+            | _ -> assert false
+            )
+          )
+      | Alt (1, v) ->
+          `Semg_exp (
+            trans_semgrep_expression (Run.matcher_token v)
           )
       | _ -> assert false
       )

@@ -165,17 +165,6 @@ let map_att_name_list (env : env) ((v1, v2, v3, v4) : CST.att_name_list) =
   in
   R.Tuple [v1; v2; v3; v4]
 
-let map_vararg_parameter (env : env) ((v1, v2) : CST.vararg_parameter) =
-  let v1 = (* "..." *) token env v1 in
-  let v2 =
-    (match v2 with
-    | Some tok -> R.Option (Some (
-        (* identifier *) token env tok
-      ))
-    | None -> R.Option None)
-  in
-  R.Tuple [v1; v2]
-
 let map_quote_string (env : env) (x : CST.quote_string) =
   (match x with
   | `DQUOT_opt_doub_str_content_DQUOT (v1, v2, v3) -> R.Case ("DQUOT_opt_doub_str_content_DQUOT",
@@ -204,6 +193,17 @@ let map_quote_string (env : env) (x : CST.quote_string) =
     )
   )
 
+let map_vararg_parameter (env : env) ((v1, v2) : CST.vararg_parameter) =
+  let v1 = (* "..." *) token env v1 in
+  let v2 =
+    (match v2 with
+    | Some tok -> R.Option (Some (
+        (* identifier *) token env tok
+      ))
+    | None -> R.Option None)
+  in
+  R.Tuple [v1; v2]
+
 let map_function_name (env : env) (x : CST.function_name) =
   (match x with
   | `Func_name_prefix_exp x -> R.Case ("Func_name_prefix_exp",
@@ -213,6 +213,19 @@ let map_function_name (env : env) (x : CST.function_name) =
       let v1 = map_function_name_prefix_expression env v1 in
       let v2 = (* ":" *) token env v2 in
       let v3 = (* identifier *) token env v3 in
+      R.Tuple [v1; v2; v3]
+    )
+  )
+
+let map_string_ (env : env) (x : CST.string_) =
+  (match x with
+  | `Quote_str x -> R.Case ("Quote_str",
+      map_quote_string env x
+    )
+  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
+      let v1 = (* block_string_start *) token env v1 in
+      let v2 = (* block_string_content *) token env v2 in
+      let v3 = (* block_string_end *) token env v3 in
       R.Tuple [v1; v2; v3]
     )
   )
@@ -241,19 +254,6 @@ let map_parameter_list (env : env) (x : CST.parameter_list) =
     )
   | `Vararg_param x -> R.Case ("Vararg_param",
       map_vararg_parameter env x
-    )
-  )
-
-let map_string_ (env : env) (x : CST.string_) =
-  (match x with
-  | `Quote_str x -> R.Case ("Quote_str",
-      map_quote_string env x
-    )
-  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
-      let v1 = (* block_string_start *) token env v1 in
-      let v2 = (* block_string_content *) token env v2 in
-      let v3 = (* block_string_end *) token env v3 in
-      R.Tuple [v1; v2; v3]
     )
   )
 
@@ -931,23 +931,32 @@ and map_while_statement (env : env) ((v1, v2, v3, v4, v5) : CST.while_statement)
   let v5 = (* "end" *) token env v5 in
   R.Tuple [v1; v2; v3; v4; v5]
 
-let map_chunk (env : env) ((v1, v2, v3) : CST.chunk) =
-  let v1 =
-    (match v1 with
-    | Some tok -> R.Option (Some (
-        (* pattern #.* *) token env tok
-      ))
-    | None -> R.Option None)
-  in
-  let v2 = R.List (List.map (map_statement env) v2) in
-  let v3 =
-    (match v3 with
-    | Some x -> R.Option (Some (
-        map_return_statement env x
-      ))
-    | None -> R.Option None)
-  in
-  R.Tuple [v1; v2; v3]
+let map_chunk (env : env) (x : CST.chunk) =
+  (match x with
+  | `Opt_hash_bang_line_rep_stmt_opt_ret_stmt (v1, v2, v3) -> R.Case ("Opt_hash_bang_line_rep_stmt_opt_ret_stmt",
+      let v1 =
+        (match v1 with
+        | Some tok -> R.Option (Some (
+            (* pattern #.* *) token env tok
+          ))
+        | None -> R.Option None)
+      in
+      let v2 = R.List (List.map (map_statement env) v2) in
+      let v3 =
+        (match v3 with
+        | Some x -> R.Option (Some (
+            map_return_statement env x
+          ))
+        | None -> R.Option None)
+      in
+      R.Tuple [v1; v2; v3]
+    )
+  | `Semg_exp (v1, v2) -> R.Case ("Semg_exp",
+      let v1 = (* "__SEMGREP_EXPRESSION" *) token env v1 in
+      let v2 = map_expression env v2 in
+      R.Tuple [v1; v2]
+    )
+  )
 
 let map_comment (env : env) (x : CST.comment) =
   (match x with

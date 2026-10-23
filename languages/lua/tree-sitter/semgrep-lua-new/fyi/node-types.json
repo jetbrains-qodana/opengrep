@@ -307,6 +307,10 @@
           "named": true
         },
         {
+          "type": "semgrep_expression",
+          "named": true
+        },
+        {
           "type": "statement",
           "named": true
         }
@@ -1339,6 +1343,21 @@
     }
   },
   {
+    "type": "semgrep_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "singlequote_string_content",
     "named": true,
     "fields": {},
@@ -1770,6 +1789,10 @@
   },
   {
     "type": "^",
+    "named": false
+  },
+  {
+    "type": "__SEMGREP_EXPRESSION",
     "named": false
   },
   {

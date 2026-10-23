@@ -11,6 +11,16 @@ module.exports = grammar(standard_grammar, {
   name: 'lua',
 
   rules: {
+    // Alternate entry point for expression patterns such as '$X + 1' or
+    // '"foo"', which are not statements. The pattern parser adds the
+    // '__SEMGREP_EXPRESSION' prefix when parsing the pattern as statements
+    // fails.
+    chunk: ($, previous) => choice(
+      previous,
+      $.semgrep_expression,
+    ),
+    semgrep_expression: $ => seq('__SEMGREP_EXPRESSION', $.expression),
+
     // '...' standing for a sequence of statements. The upstream grammar
     // has no expression statements (only calls), unlike the previous Lua
     // grammar where any expression was a statement.
