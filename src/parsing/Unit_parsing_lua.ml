@@ -260,6 +260,24 @@ let tests =
           match parse_pattern "function(...)\n  ...\nend" with
           | G.E { e = G.Lambda _; _ } -> ()
           | _ -> Alcotest.fail "expected an anonymous function");
+      t "an integer that doesn't fit in 64 bits is read as Lua does" (fun () ->
+          let literal code =
+            match parse_pattern code with
+            | G.E { e = G.L (G.Int (Some i, _)); _ } -> Int64.to_string i
+            | G.E { e = G.L (G.Float (Some f, _)); _ } -> Printf.sprintf "%g" f
+            | _ -> "?"
+          in
+          (* a decimal integer is a float, a hex one keeps its low 64 bits *)
+          Alcotest.(check (list string))
+            "literals"
+            [ "1e+22"; "578437695752307201"; "-1"; "9223372036854775807" ]
+            (List.map literal
+               [
+                 "10000000000000000000000";
+                 "0x13121110090807060504030201";
+                 "0xffffffffffffffff";
+                 "9223372036854775807";
+               ]));
       t "an expression pattern can end with a semicolon" (fun () ->
           match parse_pattern "$X + 1;" with
           | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }

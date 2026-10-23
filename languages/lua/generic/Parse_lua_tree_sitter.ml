@@ -151,18 +151,27 @@ let map_number (env : env) (tok : CST.number) : G.expr =
   let s, t = str env tok in
   let lower = String.lowercase_ascii s in
   let is_hex = String.starts_with ~prefix:"0x" lower in
+  (* an integer that doesn't fit in 64 bits: Lua keeps the low 64 bits of
+   * a hex integer (it wraps around) and reads a decimal one as a float *)
+  let integer digits =
+    match Parsed_int.parse (digits, t) with
+    | Some _, _ as i -> G.Int i
+    | None, _ when is_hex ->
+        let hex = Str.string_after digits 2 in
+        let low = Str.last_chars hex (min 16 (String.length hex)) in
+        G.Int (Parsed_int.parse ("0x" ^ low, t))
+    | None, _ -> G.Float (float_of_string_opt digits, t)
+  in
   let literal =
     if String.ends_with ~suffix:"i" lower then G.Imag (s, t)
     else if String.ends_with ~suffix:"ll" lower then
-      let digits = Str.global_replace (Str.regexp "[uU]?[lL][lL]$") "" s in
-      G.Int (Parsed_int.parse (digits, t))
+      integer (Str.global_replace (Str.regexp "[uU]?[lL][lL]$") "" s)
     else
       let is_float =
         if is_hex then String.contains lower '.' || String.contains lower 'p'
         else String.contains lower '.' || String.contains lower 'e'
       in
-      if is_float then G.Float (float_of_string_opt s, t)
-      else G.Int (Parsed_int.parse (s, t))
+      if is_float then G.Float (float_of_string_opt s, t) else integer s
   in
   G.L literal |> G.e
 
