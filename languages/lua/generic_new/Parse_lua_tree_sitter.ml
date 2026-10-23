@@ -111,6 +111,51 @@ let vararg_expression (env : env) tok =
   | Pattern -> G.Ellipsis tok
   | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
 
+(* The content of a long string such as [[x]] or [==[x]==]: a newline right
+ * after the opening bracket is not part of the string, and each line break,
+ * \r\n, \n\r, \n or \r, is a \n. *)
+let long_string_content s =
+  let s = Str.global_replace (Str.regexp "\r\n\\|\n\r\\|\r") "\n" s in
+  if String.starts_with ~prefix:"\n" s then Str.string_after s 1 else s
+
+(* The value of a short string is its source text between the quotes:
+ * escape sequences are kept as they are, as with the previous grammar. *)
+let map_string (env : env) (x : CST.string_) : G.expr =
+  let quoted l (parts : (string * Tok.t) list) r =
+    let l = token env l and r = token env r in
+    let content =
+      match parts with
+      | [] -> ("", Tok.empty_tok_after l)
+      | (s, t) :: xs ->
+          (String.concat "" (s :: List_.map fst xs), Tok.combine_toks t (List_.map snd xs))
+    in
+    G.L (G.String (l, content, r)) |> G.e
+  in
+  match x with
+  | `Quote_str (`DQUOT_opt_doub_str_content_DQUOT (v1, v2, v3)) ->
+      let parts =
+        Option.value ~default:[] v2
+        |> List_.map (function
+             | `Imm_tok_prec_p1_pat_3a2a380 tok
+             | `Esc_seq tok ->
+                 str env tok)
+      in
+      quoted v1 parts v3
+  | `Quote_str (`SQUOT_opt_sing_str_content_SQUOT (v1, v2, v3)) ->
+      let parts =
+        Option.value ~default:[] v2
+        |> List_.map (function
+             | `Imm_tok_prec_p1_pat_dc28280 tok
+             | `Esc_seq tok ->
+                 str env tok)
+      in
+      quoted v1 parts v3
+  | `Blk_str (v1, v2, v3) ->
+      let v1 = token env v1 (* "[[" *) in
+      let s, t = str env v2 in
+      let v3 = token env v3 (* "]]" *) in
+      G.L (G.String (v1, (long_string_content s, t), v3)) |> G.e
+
 (* Lua 5.4 attributes of local variables, 'local x <const> = 1'. The only
  * attributes defined by Lua are 'const' and 'close'. *)
 let map_attrib (env : env) ((v1, v2, v3) : CST.attrib) : G.attribute =
@@ -181,7 +226,7 @@ let rec map_expression (env : env) (x : CST.expression) : G.expr =
       | `False tok -> G.L (G.Bool (false, token env tok)) |> G.e
       | `True tok -> G.L (G.Bool (true, token env tok)) |> G.e
       | `Num tok -> todo env tok
-      | `Str x -> todo env x
+      | `Str x -> map_string env x
       | `Vararg_exp tok -> vararg_expression env (token env tok) |> G.e
       | `Func_defi (v1, v2) ->
           let v1 = token env v1 (* "function" *) in
@@ -280,7 +325,7 @@ and map_arguments (env : env) (x : CST.arguments) : G.arguments =
       let v3 = token env v3 (* ")" *) in
       (v1, v2, v3)
   | `Table_cons x -> fb [ G.Arg (map_table_constructor env x) ]
-  | `Str x -> todo env x
+  | `Str x -> fb [ G.Arg (map_string env x) ]
 
 and map_expression_list (env : env) (x : CST.expression_list) : G.expr list =
   List_.map (map_expression env) (sep_list x)
