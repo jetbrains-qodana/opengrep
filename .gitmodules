@@ -14,10 +14,6 @@ url = https://github.com/opengrep/semgrep-go
 path = languages/java/tree-sitter/semgrep-java
 url = https://github.com/opengrep/semgrep-java
 
-[submodule "OSS/languages/lua/tree-sitter/semgrep-lua"]
-path = languages/lua/tree-sitter/semgrep-lua
-url = https://github.com/opengrep/semgrep-lua
-
 [submodule "OSS/languages/r/tree-sitter/semgrep-r"]
 path = languages/r/tree-sitter/semgrep-r
 url = https://github.com/opengrep/semgrep-r

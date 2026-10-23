@@ -23,13 +23,11 @@ ocaml_tree_sitter=${OCAML_TREE_SITTER:-ocaml-tree-sitter}
 expected_tree_sitter_version=0.22.6
 expected_abi=14
 
-# Names of the generated OCaml library. Temporary names are used while the
-# previous Lua parser (submodule languages/lua/tree-sitter/semgrep-lua) is
-# still in the tree, as dune doesn't allow two libraries with the same name.
-lib_public_name=tree-sitter-lang.lua_new
-lib_name=tree_sitter_lua_new
-lib_module=Tree_sitter_lua_new
-bin_public_name=parse-lua-new
+# Names of the generated OCaml library and executable
+lib_public_name=tree-sitter-lang.lua
+lib_name=tree_sitter_lua
+lib_module=Tree_sitter_lua
+bin_public_name=parse-lua
 
 error() {
   echo "Error: $*" >&2
@@ -88,7 +86,7 @@ cp "$work"/ocaml-src/lib/*.ml "$work"/ocaml-src/lib/*.mli "$lib"/
 sed -e "s/@LANG@/lua/g" "$here"/templates/bindings.c.in > "$lib"/bindings.c
 
 # The parse-lua executable, to inspect the CST of a file:
-#   dune exec -- parse-lua-new FILE
+#   dune exec -- parse-lua FILE
 bin="$here"/bin
 echo "Writing $bin"
 rm -rf "$bin"
