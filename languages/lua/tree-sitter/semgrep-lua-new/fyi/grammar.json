@@ -94,52 +94,61 @@
       "type": "CHOICE",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "empty_statement"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "empty_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "assignment_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "function_call"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "label_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "break_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "goto_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "do_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "while_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "repeat_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "if_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "for_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "declaration"
+            }
+          ]
         },
         {
           "type": "SYMBOL",
-          "name": "assignment_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "function_call"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "label_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "break_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "goto_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "do_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "while_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "repeat_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "if_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "for_statement"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "declaration"
+          "name": "semgrep_ellipsis_statement"
         }
       ]
     },
@@ -3420,6 +3429,10 @@
     "_contextual_keyword": {
       "type": "STRING",
       "value": "global"
+    },
+    "semgrep_ellipsis_statement": {
+      "type": "SYMBOL",
+      "name": "vararg_expression"
     }
   },
   "extras": [

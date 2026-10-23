@@ -36,6 +36,12 @@ type block_comment_start = Token.t
 
 type block_string_content = Token.t
 
+type goto_statement = (Token.t (* "goto" *) * identifier (*tok*))
+
+type label_statement = (
+    Token.t (* "::" *) * identifier (*tok*) * Token.t (* "::" *)
+)
+
 type name_list = (
     identifier (*tok*)
   * (Token.t (* "," *) * identifier (*tok*)) list (* zero or more *)
@@ -65,8 +71,6 @@ type singlequote_string_content =
   ]
     list (* one or more *)
 
-type vararg_parameter = (Token.t (* "..." *) * identifier (*tok*) option)
-
 type att_name_list = (
     attrib option
   * identifier (*tok*)
@@ -74,6 +78,8 @@ type att_name_list = (
   * (Token.t (* "," *) * identifier (*tok*) * attrib option)
       list (* zero or more *)
 )
+
+type vararg_parameter = (Token.t (* "..." *) * identifier (*tok*) option)
 
 type quote_string = [
     `DQUOT_opt_doub_str_content_DQUOT of (
@@ -88,6 +94,14 @@ type quote_string = [
     )
 ]
 
+type function_name = [
+    `Func_name_prefix_exp of function_name_prefix_expression
+  | `Func_name_meth_index_exp of (
+        function_name_prefix_expression * Token.t (* ":" *)
+      * identifier (*tok*)
+    )
+]
+
 type parameter_list = [
     `Id_rep_COMMA_id_opt_COMMA_vararg_param of (
         identifier (*tok*)
@@ -95,14 +109,6 @@ type parameter_list = [
       * (Token.t (* "," *) * vararg_parameter) option
     )
   | `Vararg_param of vararg_parameter
-]
-
-type function_name = [
-    `Func_name_prefix_exp of function_name_prefix_expression
-  | `Func_name_meth_index_exp of (
-        function_name_prefix_expression * Token.t (* ":" *)
-      * identifier (*tok*)
-    )
 ]
 
 type string_ = [
@@ -135,6 +141,11 @@ and arguments = [
   | `Table_cons of table_constructor
   | `Str of string_
 ]
+
+and assignment_statement = (
+    variable_assignment_varlist * Token.t (* "=" *)
+  * variable_assignment_explist
+)
 
 and binary_expression = [
     `Exp_or_exp of (expression * Token.t (* "or" *) * expression)
@@ -191,6 +202,8 @@ and declaration = [
       * Token.t (* "*" *)
     )
 ]
+
+and do_statement = (Token.t (* "do" *) * block option * Token.t (* "end" *))
 
 and else_statement = (Token.t (* "else" *) * block option)
 
@@ -260,6 +273,17 @@ and for_numeric_clause = (
   * (Token.t (* "," *) * expression) option
 )
 
+and for_statement = (
+    Token.t (* "for" *)
+  * [
+        `For_gene_clause of for_generic_clause
+      | `For_nume_clause of for_numeric_clause
+    ]
+  * Token.t (* "do" *)
+  * block option
+  * Token.t (* "end" *)
+)
+
 and function_body = (parameters * block option * Token.t (* "end" *))
 
 and function_call = (
@@ -268,6 +292,16 @@ and function_call = (
       | `Meth_index_exp of method_index_expression
     ]
   * arguments
+)
+
+and if_statement = (
+    Token.t (* "if" *)
+  * expression
+  * Token.t (* "then" *)
+  * block option
+  * elseif_statement list (* zero or more *)
+  * else_statement option
+  * Token.t (* "end" *)
 )
 
 and method_index_expression = (
@@ -284,6 +318,13 @@ and prefix_expression = [
   | `Paren_exp of parenthesized_expression
 ]
 
+and repeat_statement = (
+    Token.t (* "repeat" *)
+  * block option
+  * Token.t (* "until" *)
+  * expression
+)
+
 and return_statement = (
     Token.t (* "return" *)
   * expression_list option
@@ -291,51 +332,21 @@ and return_statement = (
 )
 
 and statement = [
-    `Empty_stmt of Token.t (* ";" *)
-  | `Assign_stmt of (
-        variable_assignment_varlist * Token.t (* "=" *)
-      * variable_assignment_explist
-    )
-  | `Func_call of function_call
-  | `Label_stmt of (
-        Token.t (* "::" *) * identifier (*tok*) * Token.t (* "::" *)
-    )
-  | `Brk_stmt of Token.t (* "break" *)
-  | `Goto_stmt of (Token.t (* "goto" *) * identifier (*tok*))
-  | `Do_stmt of (Token.t (* "do" *) * block option * Token.t (* "end" *))
-  | `While_stmt of (
-        Token.t (* "while" *)
-      * expression
-      * Token.t (* "do" *)
-      * block option
-      * Token.t (* "end" *)
-    )
-  | `Repeat_stmt of (
-        Token.t (* "repeat" *)
-      * block option
-      * Token.t (* "until" *)
-      * expression
-    )
-  | `If_stmt of (
-        Token.t (* "if" *)
-      * expression
-      * Token.t (* "then" *)
-      * block option
-      * elseif_statement list (* zero or more *)
-      * else_statement option
-      * Token.t (* "end" *)
-    )
-  | `For_stmt of (
-        Token.t (* "for" *)
-      * [
-            `For_gene_clause of for_generic_clause
-          | `For_nume_clause of for_numeric_clause
-        ]
-      * Token.t (* "do" *)
-      * block option
-      * Token.t (* "end" *)
-    )
-  | `Decl of declaration
+    `Choice_empty_stmt of [
+        `Empty_stmt of Token.t (* ";" *)
+      | `Assign_stmt of assignment_statement
+      | `Func_call of function_call
+      | `Label_stmt of label_statement
+      | `Brk_stmt of Token.t (* "break" *)
+      | `Goto_stmt of goto_statement
+      | `Do_stmt of do_statement
+      | `While_stmt of while_statement
+      | `Repeat_stmt of repeat_statement
+      | `If_stmt of if_statement
+      | `For_stmt of for_statement
+      | `Decl of declaration
+    ]
+  | `Semg_ellips_stmt of Token.t (* "..." *)
 ]
 
 and table_constructor = (
@@ -366,6 +377,14 @@ and variable_assignment_varlist = (
   * (Token.t (* "," *) * variable) list (* zero or more *)
 )
 
+and while_statement = (
+    Token.t (* "while" *)
+  * expression
+  * Token.t (* "do" *)
+  * block option
+  * Token.t (* "end" *)
+)
+
 type chunk = (
     hash_bang_line (*tok*) option
   * statement list (* zero or more *)
@@ -380,23 +399,17 @@ type contextual_keyword (* inlined *) = Token.t (* "global" *)
 
 type false_ (* inlined *) = Token.t (* "false" *)
 
-type true_ (* inlined *) = Token.t (* "true" *)
+type vararg_expression (* inlined *) = Token.t (* "..." *)
 
 type break_statement (* inlined *) = Token.t (* "break" *)
 
-type vararg_expression (* inlined *) = Token.t (* "..." *)
-
-type goto_statement (* inlined *) = (
-    Token.t (* "goto" *) * identifier (*tok*)
-)
-
-type label_statement (* inlined *) = (
-    Token.t (* "::" *) * identifier (*tok*) * Token.t (* "::" *)
-)
+type true_ (* inlined *) = Token.t (* "true" *)
 
 type function_name_dot_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
 )
+
+type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
 
 type comment (* inlined *) = [
     `DASHDASH_pat_f630af3 of (Token.t (* "--" *) * pat_f630af3)
@@ -421,34 +434,12 @@ type function_name_method_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* ":" *) * identifier (*tok*)
 )
 
-type assignment_statement (* inlined *) = (
-    variable_assignment_varlist * Token.t (* "=" *)
-  * variable_assignment_explist
-)
-
 type bracket_index_expression (* inlined *) = (
     prefix_expression * Token.t (* "[" *) * expression * Token.t (* "]" *)
 )
 
-type do_statement (* inlined *) = (
-    Token.t (* "do" *)
-  * block option
-  * Token.t (* "end" *)
-)
-
 type dot_index_expression (* inlined *) = (
     prefix_expression * Token.t (* "." *) * identifier (*tok*)
-)
-
-type for_statement (* inlined *) = (
-    Token.t (* "for" *)
-  * [
-        `For_gene_clause of for_generic_clause
-      | `For_nume_clause of for_numeric_clause
-    ]
-  * Token.t (* "do" *)
-  * block option
-  * Token.t (* "end" *)
 )
 
 type function_declaration (* inlined *) = (
@@ -468,26 +459,9 @@ type global_variable_declaration (* inlined *) = (
     Token.t (* "global" *) * anon_choice_att_name_list_26e8983
 )
 
-type if_statement (* inlined *) = (
-    Token.t (* "if" *)
-  * expression
-  * Token.t (* "then" *)
-  * block option
-  * elseif_statement list (* zero or more *)
-  * else_statement option
-  * Token.t (* "end" *)
-)
-
 type local_function_declaration (* inlined *) = (
     Token.t (* "local" *) * Token.t (* "function" *) * identifier (*tok*)
   * function_body
-)
-
-type repeat_statement (* inlined *) = (
-    Token.t (* "repeat" *)
-  * block option
-  * Token.t (* "until" *)
-  * expression
 )
 
 type unary_expression (* inlined *) = (
@@ -506,14 +480,6 @@ type variable_assignment (* inlined *) = (
 
 type variable_declaration (* inlined *) = (
     Token.t (* "local" *) * anon_choice_att_name_list_26e8983
-)
-
-type while_statement (* inlined *) = (
-    Token.t (* "while" *)
-  * expression
-  * Token.t (* "do" *)
-  * block option
-  * Token.t (* "end" *)
 )
 
 type extra = [ `Comment of Loc.t * comment ]
