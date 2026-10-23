@@ -1160,11 +1160,11 @@
     }
   },
   {
-    "type": "parameter_list",
+    "type": "parameter",
     "named": true,
     "fields": {
       "name": {
-        "multiple": true,
+        "multiple": false,
         "required": false,
         "types": [
           {
@@ -1180,6 +1180,21 @@
       "types": [
         {
           "type": "vararg_parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter",
           "named": true
         }
       ]

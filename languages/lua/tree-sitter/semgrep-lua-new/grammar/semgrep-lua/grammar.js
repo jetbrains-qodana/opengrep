@@ -29,5 +29,17 @@ module.exports = grammar(standard_grammar, {
       $.semgrep_ellipsis_statement,
     ),
     semgrep_ellipsis_statement: $ => $.vararg_expression,
+
+    // '...' anywhere in a parameter list, e.g. 'function f(..., $X)'.
+    // This also accepts parameters after the vararg in a program, which
+    // Lua rejects; that's harmless as we don't need to reject invalid code.
+    _parameter_list: $ => seq(
+      $._parameter,
+      repeat(seq(',', $._parameter)),
+    ),
+    _parameter: $ => choice(
+      field('name', $.identifier),
+      $._vararg_parameter,
+    ),
   }
 });

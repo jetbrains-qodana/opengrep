@@ -59,14 +59,14 @@ let map_block_string_start (env : env) (tok : CST.block_string_start) =
 let map_imm_tok_prec_p1_pat_dc28280 (env : env) (tok : CST.imm_tok_prec_p1_pat_dc28280) =
   (* pattern "[^'\\\\]+" *) token env tok
 
-let map_pat_f630af3 (env : env) (tok : CST.pat_f630af3) =
-  (* pattern [^\r\n]* *) token env tok
-
 let map_block_comment_start (env : env) (tok : CST.block_comment_start) =
   (* block_comment_start *) token env tok
 
 let map_block_string_content (env : env) (tok : CST.block_string_content) =
   (* block_string_content *) token env tok
+
+let map_pat_f630af3 (env : env) (tok : CST.pat_f630af3) =
+  (* pattern [^\r\n]* *) token env tok
 
 let map_goto_statement (env : env) ((v1, v2) : CST.goto_statement) =
   let v1 = (* "goto" *) token env v1 in
@@ -193,17 +193,6 @@ let map_quote_string (env : env) (x : CST.quote_string) =
     )
   )
 
-let map_vararg_parameter (env : env) ((v1, v2) : CST.vararg_parameter) =
-  let v1 = (* "..." *) token env v1 in
-  let v2 =
-    (match v2 with
-    | Some tok -> R.Option (Some (
-        (* identifier *) token env tok
-      ))
-    | None -> R.Option None)
-  in
-  R.Tuple [v1; v2]
-
 let map_function_name (env : env) (x : CST.function_name) =
   (match x with
   | `Func_name_prefix_exp x -> R.Case ("Func_name_prefix_exp",
@@ -230,32 +219,34 @@ let map_string_ (env : env) (x : CST.string_) =
     )
   )
 
-let map_parameter_list (env : env) (x : CST.parameter_list) =
+let map_parameter (env : env) (x : CST.parameter) =
   (match x with
-  | `Id_rep_COMMA_id_opt_COMMA_vararg_param (v1, v2, v3) -> R.Case ("Id_rep_COMMA_id_opt_COMMA_vararg_param",
-      let v1 = (* identifier *) token env v1 in
+  | `Id tok -> R.Case ("Id",
+      (* identifier *) token env tok
+    )
+  | `Vararg_param (v1, v2) -> R.Case ("Vararg_param",
+      let v1 = (* "..." *) token env v1 in
       let v2 =
-        R.List (List.map (fun (v1, v2) ->
-          let v1 = (* "," *) token env v1 in
-          let v2 = (* identifier *) token env v2 in
-          R.Tuple [v1; v2]
-        ) v2)
-      in
-      let v3 =
-        (match v3 with
-        | Some (v1, v2) -> R.Option (Some (
-            let v1 = (* "," *) token env v1 in
-            let v2 = map_vararg_parameter env v2 in
-            R.Tuple [v1; v2]
+        (match v2 with
+        | Some tok -> R.Option (Some (
+            (* identifier *) token env tok
           ))
         | None -> R.Option None)
       in
-      R.Tuple [v1; v2; v3]
-    )
-  | `Vararg_param x -> R.Case ("Vararg_param",
-      map_vararg_parameter env x
+      R.Tuple [v1; v2]
     )
   )
+
+let map_parameter_list (env : env) ((v1, v2) : CST.parameter_list) =
+  let v1 = map_parameter env v1 in
+  let v2 =
+    R.List (List.map (fun (v1, v2) ->
+      let v1 = (* "," *) token env v1 in
+      let v2 = map_parameter env v2 in
+      R.Tuple [v1; v2]
+    ) v2)
+  in
+  R.Tuple [v1; v2]
 
 let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) =
   let v1 = (* "(" *) token env v1 in

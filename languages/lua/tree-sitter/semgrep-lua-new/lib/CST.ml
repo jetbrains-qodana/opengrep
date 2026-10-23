@@ -30,11 +30,11 @@ type block_string_start = Token.t
 
 type imm_tok_prec_p1_pat_dc28280 = Token.t (* pattern "[^'\\\\]+" *)
 
-type pat_f630af3 = Token.t (* pattern [^\r\n]* *)
-
 type block_comment_start = Token.t
 
 type block_string_content = Token.t
+
+type pat_f630af3 = Token.t (* pattern [^\r\n]* *)
 
 type goto_statement = (Token.t (* "goto" *) * identifier (*tok*))
 
@@ -92,8 +92,6 @@ type quote_string = [
     )
 ]
 
-type vararg_parameter = (Token.t (* "..." *) * identifier (*tok*) option)
-
 type function_name = [
     `Func_name_prefix_exp of function_name_prefix_expression
   | `Func_name_meth_index_exp of (
@@ -110,14 +108,15 @@ type string_ = [
     )
 ]
 
-type parameter_list = [
-    `Id_rep_COMMA_id_opt_COMMA_vararg_param of (
-        identifier (*tok*)
-      * (Token.t (* "," *) * identifier (*tok*)) list (* zero or more *)
-      * (Token.t (* "," *) * vararg_parameter) option
-    )
-  | `Vararg_param of vararg_parameter
+type parameter = [
+    `Id of identifier (*tok*)
+  | `Vararg_param of (Token.t (* "..." *) * identifier (*tok*) option)
 ]
+
+type parameter_list = (
+    parameter
+  * (Token.t (* "," *) * parameter) list (* zero or more *)
+)
 
 type parameters = (
     Token.t (* "(" *)
@@ -404,12 +403,19 @@ type false_ (* inlined *) = Token.t (* "false" *)
 
 type true_ (* inlined *) = Token.t (* "true" *)
 
-type vararg_expression (* inlined *) = Token.t (* "..." *)
-
 type break_statement (* inlined *) = Token.t (* "break" *)
+
+type vararg_expression (* inlined *) = Token.t (* "..." *)
 
 type function_name_dot_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
+)
+
+type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
+
+type block_string (* inlined *) = (
+    block_string_start (*tok*) * block_string_content (*tok*)
+  * block_string_end (*tok*)
 )
 
 type comment (* inlined *) = [
@@ -420,13 +426,6 @@ type comment (* inlined *) = [
     )
 ]
 
-type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
-
-type block_string (* inlined *) = (
-    block_string_start (*tok*) * block_string_content (*tok*)
-  * block_string_end (*tok*)
-)
-
 type global_implicit_variable_declaration (* inlined *) = (
     Token.t (* "global" *)
   * attrib option
@@ -435,6 +434,11 @@ type global_implicit_variable_declaration (* inlined *) = (
 
 type function_name_method_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* ":" *) * identifier (*tok*)
+)
+
+type vararg_parameter (* inlined *) = (
+    Token.t (* "..." *)
+  * identifier (*tok*) option
 )
 
 type bracket_index_expression (* inlined *) = (
