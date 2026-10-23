@@ -37,12 +37,33 @@ module Log = Log_parser_lua.Log
 type mode = Pattern | Target
 type env = mode H.env
 
-let token = H.token
-let str = H.str
 let fb = Tok.unsafe_fake_bracket
 
 (* a pattern statement made of a name that is not a metavariable *)
 exception Not_a_metavariable
+
+(* A token that tree-sitter inserted to recover from a syntax error (a
+ * MISSING node), e.g. the name in 'foo() function() end'. Such tokens are
+ * reported as errors in a program, but a pattern with only missing tokens
+ * would be accepted with another meaning ('function ""() end'), so in a
+ * pattern they make the parse fail. *)
+exception Missing_token of Tok.t
+
+let check_not_missing (env : env) ((_loc, s) as tok : Tree_sitter_run.Token.t)
+    =
+  match env.extra with
+  | Pattern when s = "" -> raise (Missing_token (H.token env tok))
+  | Pattern
+  | Target ->
+      ()
+
+let token env tok =
+  check_not_missing env tok;
+  H.token env tok
+
+let str env tok =
+  check_not_missing env tok;
+  H.str env tok
 
 (* x, y, z *)
 let sep_list (x, xs) = x :: List_.map snd xs
@@ -164,7 +185,8 @@ let map_string (env : env) (x : CST.string_) : G.expr =
       G.L (G.String (fb (content, t))) |> G.e
   | `Blk_str (v1, v2, v3) ->
       let v1 = token env v1 (* "[[" *) in
-      let s, t = str env v2 in
+      (* the content of [[]] is empty *)
+      let s, t = H.str env v2 in
       let v3 = token env v3 (* "]]" *) in
       G.L (G.String (v1, (long_string_content s, t), v3)) |> G.e
 
@@ -696,6 +718,13 @@ let parse_pattern str =
       (fun cst _extras -> map_chunk env cst)
   in
   let parse_expression () = parse ("__SEMGREP_EXPRESSION " ^ str) in
+  let parse_expression () =
+    try parse_expression () with
+    | Missing_token tok ->
+        Log.err (fun m ->
+            m "incomplete Lua pattern, missing token at %s" (Tok.stringpos_of_tok tok));
+        raise Parsing.Parse_error
+  in
   if String.starts_with ~prefix:"#" (String.trim str) then parse_expression ()
   else
     match parse str with
@@ -703,4 +732,4 @@ let parse_pattern str =
     | res ->
         let expr_res = parse_expression () in
         if expr_res.errors =*= [] then expr_res else res
-    | exception Not_a_metavariable -> parse_expression ()
+    | exception (Not_a_metavariable | Missing_token _) -> parse_expression ()

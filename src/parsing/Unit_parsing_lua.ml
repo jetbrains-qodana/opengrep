@@ -136,9 +136,20 @@ let name_text (name : G.name) =
  * of metavariables. *)
 let check_pattern_does_not_crash code =
   match Parse_pattern.parse_pattern Lang.Lua code with
-  | Ok _
-  | Error _ ->
-      ()
+  | Ok any ->
+      (* nor accept the pattern with an empty name inserted by tree-sitter *)
+      let visitor =
+        object
+          inherit [_] G.iter_no_id_info as super
+
+          method! visit_ident env ((s, _) as id) =
+            if s = "" then
+              Alcotest.failf "the pattern %S has an empty name" code;
+            super#visit_ident env id
+        end
+      in
+      visitor#visit_any () any
+  | Error _ -> ()
   | exception Parsing.Parse_error -> ()
   | exception Failure "no pattern found" -> ()
   | exception exn ->
@@ -232,6 +243,23 @@ let tests =
           match parse_pattern "nil" with
           | G.E { e = G.L (G.Null _); _ } -> ()
           | _ -> Alcotest.fail "expected nil");
+      t "an anonymous function is not a statement" (fun () ->
+          (* tree-sitter inserts the missing name of a function declaration:
+           * it was DefStmt with the name "" *)
+          [
+            "foo()\nfunction(...)\n  ...\nend";
+            "function()\n  ...\nend\nbar()";
+            "local f = 1\nfunction($X) return $X end";
+          ]
+          |> List.iter (fun code ->
+                 match Parse_pattern.parse_pattern Lang.Lua code with
+                 | exception Parsing.Parse_error -> ()
+                 | Error _ -> ()
+                 | Ok _ -> Alcotest.failf "the pattern %S parses" code);
+          (* alone, it is an expression *)
+          match parse_pattern "function(...)\n  ...\nend" with
+          | G.E { e = G.Lambda _; _ } -> ()
+          | _ -> Alcotest.fail "expected an anonymous function");
       t "an expression pattern can end with a semicolon" (fun () ->
           match parse_pattern "$X + 1;" with
           | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }
