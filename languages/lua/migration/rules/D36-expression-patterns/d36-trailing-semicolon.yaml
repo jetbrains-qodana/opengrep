@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d36-trailing-semicolon
+    languages: [lua]
+    severity: INFO
+    message: 'D36: expression pattern ending with a semicolon'
+    pattern: $X + d36_one;

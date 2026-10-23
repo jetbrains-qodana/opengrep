@@ -179,6 +179,12 @@ let tests =
                  let code = UFile.read_file (Fpath.v file) in
                  code :: prefixes code
                  |> List.iter check_pattern_does_not_crash));
+      t "an expression pattern can end with a semicolon" (fun () ->
+          match parse_pattern "$X + 1;" with
+          | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }
+            ->
+              ()
+          | _ -> Alcotest.fail "expected the expression $X + 1");
       t "a vararg parameter is a rest parameter" (fun () ->
           let ast = parse_program "local function f(a, ...) return ... end" in
           (* the conversion fails on a pattern construct *)

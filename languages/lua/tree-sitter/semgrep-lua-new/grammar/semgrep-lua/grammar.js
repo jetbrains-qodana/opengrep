@@ -19,7 +19,11 @@ module.exports = grammar(standard_grammar, {
       previous,
       $.semgrep_expression,
     ),
-    semgrep_expression: $ => seq('__SEMGREP_EXPRESSION', $.expression),
+    semgrep_expression: $ => seq(
+      '__SEMGREP_EXPRESSION',
+      $.expression,
+      optional(';'),
+    ),
 
     // '...' standing for a sequence of statements. The upstream grammar
     // has no expression statements (only calls), unlike the previous Lua

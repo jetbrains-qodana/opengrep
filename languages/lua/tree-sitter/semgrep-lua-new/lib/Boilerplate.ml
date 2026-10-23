@@ -909,10 +909,17 @@ let map_chunk (env : env) (x : CST.chunk) =
       in
       R.Tuple [v1; v2; v3]
     )
-  | `Semg_exp (v1, v2) -> R.Case ("Semg_exp",
+  | `Semg_exp (v1, v2, v3) -> R.Case ("Semg_exp",
       let v1 = (* "__SEMGREP_EXPRESSION" *) token env v1 in
       let v2 = map_expression env v2 in
-      R.Tuple [v1; v2]
+      let v3 =
+        (match v3 with
+        | Some tok -> R.Option (Some (
+            (* ";" *) token env tok
+          ))
+        | None -> R.Option None)
+      in
+      R.Tuple [v1; v2; v3]
     )
   )
 

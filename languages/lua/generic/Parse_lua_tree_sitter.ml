@@ -664,7 +664,7 @@ let map_chunk (env : env) (x : CST.chunk) : G.any =
       G.Ss
         (map_statements env stmts
         @ Option.to_list (Option.map (map_return env) ret))
-  | `Semg_exp (_v1, v2) -> G.E (map_expression env v2)
+  | `Semg_exp (_v1, v2, _v3) -> G.E (map_expression env v2)
 
 (* Comments are extras of the grammar (they are not in the CST) and are
  * ignored. Unlike with the previous grammar, '-- [[' starts a line comment

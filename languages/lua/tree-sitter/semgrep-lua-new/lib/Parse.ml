@@ -804,6 +804,9 @@ let children_regexps : (string * Run.exp option) list = [
     Seq [
       Token (Literal "__SEMGREP_EXPRESSION");
       Token (Name "expression");
+      Opt (
+        Token (Literal ";");
+      );
     ];
   );
   "chunk",
@@ -2464,10 +2467,13 @@ let trans_semgrep_expression ((kind, body) : mt) : CST.semgrep_expression =
   match body with
   | Children v ->
       (match v with
-      | Seq [v0; v1] ->
+      | Seq [v0; v1; v2] ->
           (
             Run.trans_token (Run.matcher_token v0),
-            trans_expression (Run.matcher_token v1)
+            trans_expression (Run.matcher_token v1),
+            Run.opt
+              (fun v -> Run.trans_token (Run.matcher_token v))
+              v2
           )
       | _ -> assert false
       )

@@ -374,7 +374,11 @@ type chunk = [
       * statement list (* zero or more *)
       * return_statement option
     )
-  | `Semg_exp of (Token.t (* "__SEMGREP_EXPRESSION" *) * expression)
+  | `Semg_exp of (
+        Token.t (* "__SEMGREP_EXPRESSION" *)
+      * expression
+      * Token.t (* ";" *) option
+    )
 ]
 
 type nil (* inlined *) = Token.t (* "nil" *)
@@ -478,7 +482,9 @@ type variable_declaration (* inlined *) = (
 )
 
 type semgrep_expression (* inlined *) = (
-    Token.t (* "__SEMGREP_EXPRESSION" *) * expression
+    Token.t (* "__SEMGREP_EXPRESSION" *)
+  * expression
+  * Token.t (* ";" *) option
 )
 
 type extra = [ `Comment of Loc.t * comment ]
