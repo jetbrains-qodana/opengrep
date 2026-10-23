@@ -130,6 +130,29 @@ let name_text (name : G.name) =
   | G.IdQualified { name_last = last, _; name_middle = None; _ } -> fst last
   | G.IdQualified _ -> "?"
 
+(* Parsing an invalid pattern must fail with a parse error, never with
+ * another exception. tree-sitter recovers from syntax errors by inserting
+ * empty tokens, which crashed the translation of strings and the checks
+ * of metavariables. *)
+let check_pattern_does_not_crash code =
+  match Parse_pattern.parse_pattern Lang.Lua code with
+  | Ok _
+  | Error _ ->
+      ()
+  | exception Parsing.Parse_error -> ()
+  | exception Failure "no pattern found" -> ()
+  | exception exn ->
+      Alcotest.failf "the pattern %S raised %s" code (Printexc.to_string exn)
+
+(* the prefixes of a pattern that end at a delimiter *)
+let prefixes code =
+  let delimiters = " \n\t(){}[],.:\"'=" in
+  String.to_seq code
+  |> Seq.mapi (fun i c -> (i, c))
+  |> Seq.filter (fun (_, c) -> String.contains delimiters c)
+  |> Seq.map (fun (i, _) -> String.sub code 0 (i + 1))
+  |> List.of_seq
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -137,6 +160,25 @@ let name_text (name : G.name) =
 let tests =
   Testo.categorize "parsing_lua"
     [
+      t "an invalid pattern is a parse error, not a crash" (fun () ->
+          [
+            (* a missing string argument: o:m"" *)
+            "{..., $KEY: $VALUE, ...}";
+            "$X:$Y";
+            "f(";
+            "x = \"";
+            "local a <";
+            "function $F(";
+            "{ [";
+          ]
+          |> List.iter check_pattern_does_not_crash);
+      t "the prefixes of the Lua pattern tests do not crash" (fun () ->
+          Common2.glob "tests/patterns/lua/*.sgrep"
+          @ Common2.glob "tests/patterns/POLYGLOT/*.sgrep"
+          |> List.iter (fun file ->
+                 let code = UFile.read_file (Fpath.v file) in
+                 code :: prefixes code
+                 |> List.iter check_pattern_does_not_crash));
       t "a vararg parameter is a rest parameter" (fun () ->
           let ast = parse_program "local function f(a, ...) return ... end" in
           (* the conversion fails on a pattern construct *)

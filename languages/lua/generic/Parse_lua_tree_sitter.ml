@@ -152,7 +152,12 @@ let map_string (env : env) (x : CST.string_) : G.expr =
   match x with
   | `Quote_str tok ->
       let s, t = str env tok in
-      let content = String.sub s 1 (String.length s - 2) in
+      (* the token is empty when tree-sitter inserted it to recover from a
+       * syntax error *)
+      let content =
+        if String.length s >= 2 then String.sub s 1 (String.length s - 2)
+        else ""
+      in
       G.L (G.String (fb (content, t))) |> G.e
   | `Blk_str (v1, v2, v3) ->
       let v1 = token env v1 (* "[[" *) in
