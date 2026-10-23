@@ -112,6 +112,19 @@ let rec map_function_name_prefix_expression (env : env) (x : CST.function_name_p
     )
   )
 
+let map_string_ (env : env) (x : CST.string_) =
+  (match x with
+  | `Quote_str tok -> R.Case ("Quote_str",
+      (* quote_string *) token env tok
+    )
+  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
+      let v1 = (* block_string_start *) token env v1 in
+      let v2 = (* block_string_content *) token env v2 in
+      let v3 = (* block_string_end *) token env v3 in
+      R.Tuple [v1; v2; v3]
+    )
+  )
+
 let map_att_name_list (env : env) ((v1, v2, v3, v4) : CST.att_name_list) =
   let v1 =
     (match v1 with
@@ -144,32 +157,6 @@ let map_att_name_list (env : env) ((v1, v2, v3, v4) : CST.att_name_list) =
   in
   R.Tuple [v1; v2; v3; v4]
 
-let map_string_ (env : env) (x : CST.string_) =
-  (match x with
-  | `Quote_str tok -> R.Case ("Quote_str",
-      (* quote_string *) token env tok
-    )
-  | `Blk_str (v1, v2, v3) -> R.Case ("Blk_str",
-      let v1 = (* block_string_start *) token env v1 in
-      let v2 = (* block_string_content *) token env v2 in
-      let v3 = (* block_string_end *) token env v3 in
-      R.Tuple [v1; v2; v3]
-    )
-  )
-
-let map_function_name (env : env) (x : CST.function_name) =
-  (match x with
-  | `Func_name_prefix_exp x -> R.Case ("Func_name_prefix_exp",
-      map_function_name_prefix_expression env x
-    )
-  | `Func_name_meth_index_exp (v1, v2, v3) -> R.Case ("Func_name_meth_index_exp",
-      let v1 = map_function_name_prefix_expression env v1 in
-      let v2 = (* ":" *) token env v2 in
-      let v3 = (* identifier *) token env v3 in
-      R.Tuple [v1; v2; v3]
-    )
-  )
-
 let map_parameter (env : env) (x : CST.parameter) =
   (match x with
   | `Id tok -> R.Case ("Id",
@@ -185,6 +172,19 @@ let map_parameter (env : env) (x : CST.parameter) =
         | None -> R.Option None)
       in
       R.Tuple [v1; v2]
+    )
+  )
+
+let map_function_name (env : env) (x : CST.function_name) =
+  (match x with
+  | `Func_name_prefix_exp x -> R.Case ("Func_name_prefix_exp",
+      map_function_name_prefix_expression env x
+    )
+  | `Func_name_meth_index_exp (v1, v2, v3) -> R.Case ("Func_name_meth_index_exp",
+      let v1 = map_function_name_prefix_expression env v1 in
+      let v2 = (* ":" *) token env v2 in
+      let v3 = (* identifier *) token env v3 in
+      R.Tuple [v1; v2; v3]
     )
   )
 
@@ -795,6 +795,9 @@ and map_statement (env : env) (x : CST.statement) =
     )
   | `Semg_ellips_stmt tok -> R.Case ("Semg_ellips_stmt",
       (* "..." *) token env tok
+    )
+  | `Semg_meta_stmt tok -> R.Case ("Semg_meta_stmt",
+      (* identifier *) token env tok
     )
   )
 

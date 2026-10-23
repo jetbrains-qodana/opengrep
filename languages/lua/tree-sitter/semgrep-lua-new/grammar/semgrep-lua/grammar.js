@@ -31,8 +31,15 @@ module.exports = grammar(standard_grammar, {
     statement: ($, previous) => choice(
       previous,
       $.semgrep_ellipsis_statement,
+      $.semgrep_metavariable_statement,
     ),
     semgrep_ellipsis_statement: $ => $.vararg_expression,
+
+    // A metavariable standing for a statement, e.g. 'if $C then $S end'.
+    // As for '...', the upstream grammar has no expression statements.
+    // This also accepts any name alone as a statement in a program, which
+    // Lua rejects (the previous grammar accepted any expression).
+    semgrep_metavariable_statement: $ => prec(-1, $.identifier),
 
     // '...' anywhere in a parameter list, e.g. 'function f(..., $X)'.
     // This also accepts parameters after the vararg in a program, which

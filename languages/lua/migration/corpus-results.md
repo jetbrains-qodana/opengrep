@@ -20,7 +20,7 @@ declarations, `0b101`/`10ULL` literals, code after `-- [[` (see
 | luarocks/luarocks | 165 | 19 → 0 | 28 → 0 | 99.92% → 100.00% |
 | lunarmodules/Penlight | 114 | 9 → 0 | 13 → 0 | 99.95% → 100.00% |
 | lunarmodules/busted | 99 | 9 → 1 | 13 → 3 | 99.84% → 99.96% |
-| lunarmodules/luacheck | 133 | 15 → 3 | 31 → 7 | 99.86% → 99.97% |
+| lunarmodules/luacheck | 133 | 15 → 2 | 31 → 5 | 99.86% → 99.98% |
 | xmake-io/xmake | 2460 | 71 → 0 | 78 → 0 | 99.97% → 100.00% |
 | awesomeWM/awesome | 883 | 34 → 0 | 51 → 0 | 99.95% → 100.00% |
 | koreader/koreader | 597 | 50 → 0 | 119 → 0 | 99.95% → 100.00% |
@@ -33,8 +33,8 @@ declarations, `0b101`/`10ULL` literals, code after `-- [[` (see
 | hrsh7th/nvim-cmp | 57 | 2 → 0 | 5 → 0 | 99.95% → 100.00% |
 | L3MON4D3/LuaSnip | 130 | 4 → 0 | 10 → 0 | 99.97% → 100.00% |
 | folke/snacks.nvim | 140 | 11 → 0 | 18 → 0 | 99.95% → 100.00% |
-| nvim-treesitter/nvim-treesitter | 79 | 8 → 2 | 9 → 12 | 99.89% → 99.85% |
-| tarantool/tarantool | 2007 | 692 → 276 | 13720 → 20535 | 97.26% → 95.89% |
+| nvim-treesitter/nvim-treesitter | 79 | 8 → 2 | 9 → 25 | 99.89% → 99.69% |
+| tarantool/tarantool | 2007 | 692 → 246 | 13720 → 10667 | 97.26% → 97.87% |
 | teal-language/tl | 259 | 9 → 0 | 23 → 0 | 99.97% → 100.00% |
 | pkulchenko/ZeroBraneStudio | 13284 | 1271 → 0 | 2214 → 0 | 99.95% → 100.00% |
 | kikito/inspect.lua | 4 | 0 → 0 | 0 → 0 | 100.00% → 100.00% |
@@ -42,19 +42,22 @@ declarations, `0b101`/`10ULL` literals, code after `-- [[` (see
 | rxi/lume | 3 | 0 → 0 | 0 → 0 | 100.00% → 100.00% |
 | kikito/middleclass | 11 | 1 → 0 | 1 → 0 | 99.92% → 100.00% |
 | mpeterv/argparse | 15 | 5 → 0 | 352 → 0 | 91.25% → 100.00% |
-| **Total** | 24373 | 2429 → 283 | 18231 → 20558 | 99.72% → 99.68% |
-| **Total without tarantool** | 22366 | 1737 → 7 | 4511 → 23 | 99.92% → 100.00% |
+| **Total** | 24373 | 2429 → 252 | 18231 → 10701 | 99.72% → 99.83% |
+| **Total without tarantool** | 22366 | 1737 → 6 | 4511 → 34 | 99.92% → 100.00% |
 
 ## Remaining errors
 
-All the files that still have errors are invalid Lua on purpose:
+All the files that still have errors are invalid Lua on purpose. (Some
+invalid files parse without error, e.g. luacheck's
+`spec/samples/python_code.lua`: to parse metavariable statements in
+patterns, a name alone is accepted as a statement, as with the previous
+grammar.)
 
 | Project | File | Why |
 |---|---|---|
 | tarantool/tarantool | 276 `test/**/*.test.lua` files | REPL transcripts for tarantool's test runner, not Lua: bare expressions such as `i0:bsize() > bsize` and `\` line continuations. The old grammar accepted any expression as a statement, so it reported fewer of them; the error lines are higher with the new parser because a statement containing an error is reported as a whole |
 | Kong/kong | `spec/fixtures/invalid-module.lua` | "Invalid module (syntax error)" fixture |
 | lunarmodules/busted | `spec/cl_compile_fail.lua` | "it should just fail when it is being compiled" |
-| lunarmodules/luacheck | `spec/samples/python_code.lua` | Python code |
 | lunarmodules/luacheck | `spec/samples/compound_operators.lua` | `+=` and similar operators, not Lua |
 | lunarmodules/luacheck | `spec/samples/utf8_error.lua` | invalid UTF-8, a test of luacheck's error |
 | nvim-treesitter/nvim-treesitter | `tests/indent/lua/cond.lua`, `func.lua` | incomplete code (indentation tests) |

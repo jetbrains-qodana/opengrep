@@ -69,7 +69,7 @@ The "Old behavior" column describes what happens with the old parser.
 
 | Id | Construct | Old grammar | New grammar | Old behavior | Translation |
 |---|---|---|---|---|---|
-| D35 | `...` as a statement | was an expression statement | `semgrep_ellipsis_statement` | ok | `ExprStmt Ellipsis` |
+| D35 | `...` or a metavariable `$S` as a statement | were expression statements | `semgrep_ellipsis_statement`, `semgrep_metavariable_statement` (any name; in a pattern, a name that is not a metavariable falls back to the expression entry point, since keywords such as `not` or `true` are lexed as names there) | ok | `ExprStmt Ellipsis`, `ExprStmt (Id "$S")` |
 | D36 | Expression patterns (`$X + 1`, `"x"`, `a.b`) | expression statements | `semgrep_expression` entry point (`__SEMGREP_EXPRESSION` prefix added by the pattern parser when parsing as statements fails) | ok | `E expr` |
 | D37 | `...` anywhere in a parameter list `function f(..., $X)` | `...` allowed only first or last | `...` allowed at any position | ok | `ParamEllipsis` |
 | D38 | Deep ellipsis `<... e ...>` | not supported | `deep_ellipsis` | parse error | `DeepEllipsis` |

@@ -59,14 +59,6 @@ type function_name_prefix_expression = [
     )
 ]
 
-type att_name_list = (
-    attrib option
-  * identifier (*tok*)
-  * attrib option
-  * (Token.t (* "," *) * identifier (*tok*) * attrib option)
-      list (* zero or more *)
-)
-
 type string_ = [
     `Quote_str of quote_string (*tok*)
   | `Blk_str of (
@@ -75,17 +67,25 @@ type string_ = [
     )
 ]
 
+type att_name_list = (
+    attrib option
+  * identifier (*tok*)
+  * attrib option
+  * (Token.t (* "," *) * identifier (*tok*) * attrib option)
+      list (* zero or more *)
+)
+
+type parameter = [
+    `Id of identifier (*tok*)
+  | `Vararg_param of (Token.t (* "..." *) * identifier (*tok*) option)
+]
+
 type function_name = [
     `Func_name_prefix_exp of function_name_prefix_expression
   | `Func_name_meth_index_exp of (
         function_name_prefix_expression * Token.t (* ":" *)
       * identifier (*tok*)
     )
-]
-
-type parameter = [
-    `Id of identifier (*tok*)
-  | `Vararg_param of (Token.t (* "..." *) * identifier (*tok*) option)
 ]
 
 type parameter_list = (
@@ -320,6 +320,7 @@ and statement = [
       | `Decl of declaration
     ]
   | `Semg_ellips_stmt of Token.t (* "..." *)
+  | `Semg_meta_stmt of identifier (*tok*)
 ]
 
 and table_constructor = (
@@ -389,15 +390,13 @@ type contextual_keyword (* inlined *) = Token.t (* "global" *)
 
 type false_ (* inlined *) = Token.t (* "false" *)
 
-type true_ (* inlined *) = Token.t (* "true" *)
-
 type break_statement (* inlined *) = Token.t (* "break" *)
+
+type true_ (* inlined *) = Token.t (* "true" *)
 
 type vararg_expression (* inlined *) = Token.t (* "..." *)
 
-type function_name_dot_index_expression (* inlined *) = (
-    function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
-)
+type semgrep_metavariable_statement (* inlined *) = identifier (*tok*)
 
 type doublequote_string_content (* inlined *) =
   [
@@ -413,8 +412,6 @@ type singlequote_string_content (* inlined *) =
   ]
     list (* one or more *)
 
-type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
-
 type block_string (* inlined *) = (
     block_string_start (*tok*) * block_string_content (*tok*)
   * block_string_end (*tok*)
@@ -428,6 +425,17 @@ type comment (* inlined *) = [
     )
 ]
 
+type semgrep_ellipsis_statement (* inlined *) = Token.t (* "..." *)
+
+type function_name_dot_index_expression (* inlined *) = (
+    function_name_prefix_expression * Token.t (* "." *) * identifier (*tok*)
+)
+
+type vararg_parameter (* inlined *) = (
+    Token.t (* "..." *)
+  * identifier (*tok*) option
+)
+
 type global_implicit_variable_declaration (* inlined *) = (
     Token.t (* "global" *)
   * attrib option
@@ -436,11 +444,6 @@ type global_implicit_variable_declaration (* inlined *) = (
 
 type function_name_method_index_expression (* inlined *) = (
     function_name_prefix_expression * Token.t (* ":" *) * identifier (*tok*)
-)
-
-type vararg_parameter (* inlined *) = (
-    Token.t (* "..." *)
-  * identifier (*tok*) option
 )
 
 type bracket_index_expression (* inlined *) = (

@@ -158,6 +158,10 @@
         {
           "type": "SYMBOL",
           "name": "semgrep_ellipsis_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "semgrep_metavariable_statement"
         }
       ]
     },
@@ -3407,6 +3411,14 @@
     "semgrep_ellipsis_statement": {
       "type": "SYMBOL",
       "name": "vararg_expression"
+    },
+    "semgrep_metavariable_statement": {
+      "type": "PREC",
+      "value": -1,
+      "content": {
+        "type": "SYMBOL",
+        "name": "identifier"
+      }
     },
     "deep_ellipsis": {
       "type": "SEQ",

@@ -61,11 +61,11 @@ let children_regexps : (string * Run.exp option) list = [
   "contextual_keyword", None;
   "false", None;
   "block_comment_start", None;
-  "true", None;
   "break_statement", None;
-  "vararg_expression", None;
+  "true", None;
   "block_string_content", None;
   "pat_f630af3", None;
+  "vararg_expression", None;
   "goto_statement",
   Some (
     Seq [
@@ -80,6 +80,10 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "identifier");
       Token (Literal "::");
     ];
+  );
+  "semgrep_metavariable_statement",
+  Some (
+    Token (Name "identifier");
   );
   "name_list",
   Some (
@@ -116,19 +120,6 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "function_name_dot_index_expression");
     |];
   );
-  "semgrep_ellipsis_statement",
-  Some (
-    Token (Name "vararg_expression");
-  );
-  "vararg_parameter",
-  Some (
-    Seq [
-      Token (Name "vararg_expression");
-      Opt (
-        Token (Name "identifier");
-      );
-    ];
-  );
   "block_string",
   Some (
     Seq [
@@ -150,6 +141,19 @@ let children_regexps : (string * Run.exp option) list = [
         Token (Name "block_comment_end");
       ];
     |];
+  );
+  "vararg_parameter",
+  Some (
+    Seq [
+      Token (Name "vararg_expression");
+      Opt (
+        Token (Name "identifier");
+      );
+    ];
+  );
+  "semgrep_ellipsis_statement",
+  Some (
+    Token (Name "vararg_expression");
   );
   "att_name_list",
   Some (
@@ -190,18 +194,18 @@ let children_regexps : (string * Run.exp option) list = [
       Token (Name "identifier");
     ];
   );
-  "parameter",
-  Some (
-    Alt [|
-      Token (Name "identifier");
-      Token (Name "vararg_parameter");
-    |];
-  );
   "string",
   Some (
     Alt [|
       Token (Name "quote_string");
       Token (Name "block_string");
+    |];
+  );
+  "parameter",
+  Some (
+    Alt [|
+      Token (Name "identifier");
+      Token (Name "vararg_parameter");
     |];
   );
   "function_name",
@@ -712,6 +716,7 @@ let children_regexps : (string * Run.exp option) list = [
         Token (Name "declaration");
       |];
       Token (Name "semgrep_ellipsis_statement");
+      Token (Name "semgrep_metavariable_statement");
     |];
   );
   "table_constructor",
@@ -912,17 +917,12 @@ let trans_block_comment_start ((kind, body) : mt) : CST.block_comment_start =
   | Leaf v -> v
   | Children _ -> assert false
 
-let trans_true_ ((kind, body) : mt) : CST.true_ =
-  match body with
-  | Leaf v -> v
-  | Children _ -> assert false
-
 let trans_break_statement ((kind, body) : mt) : CST.break_statement =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
 
-let trans_vararg_expression ((kind, body) : mt) : CST.vararg_expression =
+let trans_true_ ((kind, body) : mt) : CST.true_ =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
@@ -933,6 +933,11 @@ let trans_block_string_content ((kind, body) : mt) : CST.block_string_content =
   | Children _ -> assert false
 
 let trans_pat_f630af3 ((kind, body) : mt) : CST.pat_f630af3 =
+  match body with
+  | Leaf v -> v
+  | Children _ -> assert false
+
+let trans_vararg_expression ((kind, body) : mt) : CST.vararg_expression =
   match body with
   | Leaf v -> v
   | Children _ -> assert false
@@ -962,6 +967,12 @@ let trans_label_statement ((kind, body) : mt) : CST.label_statement =
           )
       | _ -> assert false
       )
+  | Leaf _ -> assert false
+
+let trans_semgrep_metavariable_statement ((kind, body) : mt) : CST.semgrep_metavariable_statement =
+  match body with
+  | Children v ->
+      trans_identifier (Run.matcher_token v)
   | Leaf _ -> assert false
 
 let trans_name_list ((kind, body) : mt) : CST.name_list =
@@ -1035,27 +1046,6 @@ and trans_function_name_prefix_expression ((kind, body) : mt) : CST.function_nam
 
 
 
-let trans_semgrep_ellipsis_statement ((kind, body) : mt) : CST.semgrep_ellipsis_statement =
-  match body with
-  | Children v ->
-      trans_vararg_expression (Run.matcher_token v)
-  | Leaf _ -> assert false
-
-let trans_vararg_parameter ((kind, body) : mt) : CST.vararg_parameter =
-  match body with
-  | Children v ->
-      (match v with
-      | Seq [v0; v1] ->
-          (
-            trans_vararg_expression (Run.matcher_token v0),
-            Run.opt
-              (fun v -> trans_identifier (Run.matcher_token v))
-              v1
-          )
-      | _ -> assert false
-      )
-  | Leaf _ -> assert false
-
 let trans_block_string ((kind, body) : mt) : CST.block_string =
   match body with
   | Children v ->
@@ -1099,6 +1089,27 @@ let trans_comment ((kind, body) : mt) : CST.comment =
           )
       | _ -> assert false
       )
+  | Leaf _ -> assert false
+
+let trans_vararg_parameter ((kind, body) : mt) : CST.vararg_parameter =
+  match body with
+  | Children v ->
+      (match v with
+      | Seq [v0; v1] ->
+          (
+            trans_vararg_expression (Run.matcher_token v0),
+            Run.opt
+              (fun v -> trans_identifier (Run.matcher_token v))
+              v1
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
+let trans_semgrep_ellipsis_statement ((kind, body) : mt) : CST.semgrep_ellipsis_statement =
+  match body with
+  | Children v ->
+      trans_vararg_expression (Run.matcher_token v)
   | Leaf _ -> assert false
 
 let trans_att_name_list ((kind, body) : mt) : CST.att_name_list =
@@ -1168,22 +1179,6 @@ let trans_function_name_method_index_expression ((kind, body) : mt) : CST.functi
       )
   | Leaf _ -> assert false
 
-let trans_parameter ((kind, body) : mt) : CST.parameter =
-  match body with
-  | Children v ->
-      (match v with
-      | Alt (0, v) ->
-          `Id (
-            trans_identifier (Run.matcher_token v)
-          )
-      | Alt (1, v) ->
-          `Vararg_param (
-            trans_vararg_parameter (Run.matcher_token v)
-          )
-      | _ -> assert false
-      )
-  | Leaf _ -> assert false
-
 let trans_string_ ((kind, body) : mt) : CST.string_ =
   match body with
   | Children v ->
@@ -1195,6 +1190,22 @@ let trans_string_ ((kind, body) : mt) : CST.string_ =
       | Alt (1, v) ->
           `Blk_str (
             trans_block_string (Run.matcher_token v)
+          )
+      | _ -> assert false
+      )
+  | Leaf _ -> assert false
+
+let trans_parameter ((kind, body) : mt) : CST.parameter =
+  match body with
+  | Children v ->
+      (match v with
+      | Alt (0, v) ->
+          `Id (
+            trans_identifier (Run.matcher_token v)
+          )
+      | Alt (1, v) ->
+          `Vararg_param (
+            trans_vararg_parameter (Run.matcher_token v)
           )
       | _ -> assert false
       )
@@ -2281,6 +2292,10 @@ and trans_statement ((kind, body) : mt) : CST.statement =
       | Alt (1, v) ->
           `Semg_ellips_stmt (
             trans_semgrep_ellipsis_statement (Run.matcher_token v)
+          )
+      | Alt (2, v) ->
+          `Semg_meta_stmt (
+            trans_semgrep_metavariable_statement (Run.matcher_token v)
           )
       | _ -> assert false
       )

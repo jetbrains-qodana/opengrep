@@ -210,6 +210,28 @@ let tests =
                  | G.Pr [] ->
                      Alcotest.failf "%s is an empty pattern" file
                  | _ -> ()));
+      t "a metavariable alone is a statement in a sequence" (fun () ->
+          match parse_pattern "foo()\n$S\nbar()" with
+          | G.Ss
+              [
+                { s = G.ExprStmt ({ e = G.Call _; _ }, _); _ };
+                { s = G.ExprStmt ({ e = G.N (G.Id (("$S", _), _)); _ }, _); _ };
+                { s = G.ExprStmt ({ e = G.Call _; _ }, _); _ };
+              ] ->
+              ()
+          | _ -> Alcotest.fail "expected three statements");
+      t "a keyword alone is not a metavariable statement" (fun () ->
+          (match parse_pattern "not $X" with
+          | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Not, _); _ }, _); _ }
+            ->
+              ()
+          | _ -> Alcotest.fail "expected the expression not $X");
+          (match parse_pattern "true" with
+          | G.E { e = G.L (G.Bool (true, _)); _ } -> ()
+          | _ -> Alcotest.fail "expected true");
+          match parse_pattern "nil" with
+          | G.E { e = G.L (G.Null _); _ } -> ()
+          | _ -> Alcotest.fail "expected nil");
       t "an expression pattern can end with a semicolon" (fun () ->
           match parse_pattern "$X + 1;" with
           | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }
