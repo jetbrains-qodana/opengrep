@@ -60,6 +60,13 @@ Items 1-21 follow the numbering of the initial gap analysis.
 | 23 | Tests: whole opengrep test suite + migration rules pass; useful migration cases added to `tests/parsing/lua`, `tests/patterns/lua`, `tests/rules` | Several commits |
 | 24 | Corpus validation on the 30 projects, results in `corpus-results.md` | |
 
+Two extra fixes came out of the validation (separate commits):
+
+* the rule prefilter required the implicit `self` of `function T:m()`
+  patterns in the target (`src/rule/Pattern.ml`, affected the old parser too);
+* upstream, `"--[[x"` started a block comment inside a short string; short
+  strings are single tokens in the semgrep extension.
+
 ## How to regenerate the parser
 
 See [`semgrep-lua-new/README.md`](../tree-sitter/semgrep-lua-new/README.md).
