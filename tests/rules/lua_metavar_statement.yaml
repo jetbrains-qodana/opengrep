@@ -1,0 +1,34 @@
+rules:
+  # a metavariable alone as a statement, in branches
+  - id: lua-identical-branches
+    languages: [lua]
+    severity: INFO
+    message: both branches are the same
+    pattern: |
+      if $C then
+        $S1
+      else
+        $S1
+      end
+  # a metavariable statement before a function
+  - id: lua-statement-before-function
+    languages: [lua]
+    severity: INFO
+    message: a statement right before a function definition
+    pattern: |
+      $PREV
+      function target(...)
+        ...
+      end
+  # a metavariable statement after '...' in pattern-not-inside: if it
+  # doesn't parse as a statement, the exclusion is lost
+  - id: lua-last-local-of-block
+    languages: [lua]
+    severity: INFO
+    message: a local declared as the last statement of a block
+    patterns:
+      - pattern: local $X = $F(...)
+      - pattern-not-inside: |
+          local $X = $F(...)
+          ...
+          $S

@@ -1,0 +1,11 @@
+rules:
+  - id: lua-duplicate-table-key
+    languages: [lua]
+    severity: WARNING
+    message: duplicate key in a table constructor
+    pattern-either:
+      - pattern: '{..., $K = $A, ..., $K = $B, ...}'
+      - pattern: '{$X1, ..., [1] = $B, ...}'
+      - pattern: '{[1] = $B, ..., $X1, ...}'
+      - pattern: '{$X1, $X2, ..., [2] = $B, ...}'
+      - pattern: '{$X1, $X2, $X3, ..., [3] = $B, ...}'
