@@ -179,6 +179,37 @@ let tests =
                  let code = UFile.read_file (Fpath.v file) in
                  code :: prefixes code
                  |> List.iter check_pattern_does_not_crash));
+      t "a pattern starting with # is a length expression, not a shebang"
+        (fun () ->
+          match parse_pattern "#$T > 0" with
+          | G.E
+              {
+                e =
+                  G.Call
+                    ( { e = G.IdSpecial (G.Op G.Gt, _); _ },
+                      ( _,
+                        G.Arg
+                          {
+                            e =
+                              G.Call
+                                ({ e = G.IdSpecial (G.Op G.Length, _); _ }, _);
+                            _;
+                          }
+                        :: _,
+                        _ ) );
+                _;
+              } ->
+              ()
+          | _ -> Alcotest.fail "expected the expression #$T > 0");
+      t "the Lua pattern tests are not empty patterns" (fun () ->
+          (* e.g. '#$T' was parsed as a shebang line followed by nothing *)
+          Common2.glob "tests/patterns/lua/*.sgrep"
+          |> List.iter (fun file ->
+                 match parse_pattern (UFile.read_file (Fpath.v file)) with
+                 | G.Ss []
+                 | G.Pr [] ->
+                     Alcotest.failf "%s is an empty pattern" file
+                 | _ -> ()));
       t "an expression pattern can end with a semicolon" (fun () ->
           match parse_pattern "$X + 1;" with
           | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }

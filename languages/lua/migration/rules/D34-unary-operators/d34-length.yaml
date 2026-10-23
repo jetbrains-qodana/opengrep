@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d34-length
+    languages: [lua]
+    severity: INFO
+    message: 'D34: length operator, a pattern starting with # is not a shebang'
+    pattern: '#d34_t > 0'

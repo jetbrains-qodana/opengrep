@@ -680,16 +680,22 @@ let parse file =
 
 (* A pattern is parsed as statements, or as an expression if that fails:
  * unlike in the previous grammar, an expression such as '$X + 1' is not a
- * statement. *)
+ * statement.
+ * A pattern starting with '#' is an expression using the length operator,
+ * '#$T > 0': no statement starts with '#', and parsed as statements the
+ * whole line would be a shebang line. *)
 let parse_statements_or_expression str =
-  let res = Tree_sitter_lua.Parse.string str in
-  match res.errors with
-  | [] -> res
-  | _ ->
-      let expr_res =
-        Tree_sitter_lua.Parse.string ("__SEMGREP_EXPRESSION " ^ str)
-      in
-      if expr_res.errors =*= [] then expr_res else res
+  let parse_expression () =
+    Tree_sitter_lua.Parse.string ("__SEMGREP_EXPRESSION " ^ str)
+  in
+  if String.starts_with ~prefix:"#" (String.trim str) then parse_expression ()
+  else
+    let res = Tree_sitter_lua.Parse.string str in
+    match res.errors with
+    | [] -> res
+    | _ ->
+        let expr_res = parse_expression () in
+        if expr_res.errors =*= [] then expr_res else res
 
 let parse_pattern str =
   H.wrap_parser

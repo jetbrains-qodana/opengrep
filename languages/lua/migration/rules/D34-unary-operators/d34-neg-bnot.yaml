@@ -1,9 +1,8 @@
 rules:
-  - id: lua-mig-d34-length-neg-bnot
+  - id: lua-mig-d34-neg-bnot
     languages: [lua]
     severity: INFO
-    message: 'D34: length, negation, bitwise not'
+    message: 'D34: negation and bitwise not'
     pattern-either:
-      - pattern: '#d34_t'
       - pattern: -d34_t
       - pattern: ~d34_t
