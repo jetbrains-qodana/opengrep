@@ -52,7 +52,7 @@ Items 1-21 follow the numbering of the initial gap analysis.
 | 15 | Contextual keyword `global` used as a name | plain identifier |
 | 16 | Strings: structured content, escape sequences, long brackets | value is the source text between the delimiters, as before |
 | 17 | Numbers: integers vs floats, binary literals, LuaJIT suffixes, imaginary | `Int` / `Float` / `Imag` (before: always `Float`) |
-| 18 | `self`, `next`, `_G`, `_VERSION` are plain identifiers now | `self` is still translated to `IdSpecial Self` |
+| 18 | `self`, `next`, `_G`, `_VERSION` are plain identifiers now | `self` was first kept as `IdSpecial Self`, then made a plain name (port of `d8454b5` from main) |
 | 19 | Function names `a.b.c:m`, implicit `self` of methods | |
 | 20 | Shebang line | ignored |
 | 21 | Comments | ignored (extras) |

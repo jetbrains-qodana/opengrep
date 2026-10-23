@@ -314,6 +314,52 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "self refers to the self parameter" (fun () ->
+          let resolved = ref [] in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_expr env e =
+                (match e.e with
+                | G.N (G.Id (("self", _), info)) ->
+                    resolved := Option.is_some !(info.id_resolved) :: !resolved
+                | _ -> ());
+                super#visit_expr env e
+            end
+          in
+          visitor#visit_program ()
+            (parse_program "function T:m() return self end");
+          Alcotest.(check (list bool)) "self" [ true ] !resolved);
+      t "self outside a method is a plain name" (fun () ->
+          (* self! for a self resolved by Naming_AST *)
+          let selves code =
+            let selves = ref [] in
+            let visitor =
+              object
+                inherit [_] G.iter as super
+
+                method! visit_expr env e =
+                  (match e.e with
+                  | G.N (G.Id (("self", _), info)) ->
+                      selves :=
+                        (if Option.is_some !(info.id_resolved) then "self!"
+                         else "self")
+                        :: !selves
+                  | G.IdSpecial (G.Self, _) -> selves := "special" :: !selves
+                  | _ -> ());
+                  super#visit_expr env e
+              end
+            in
+            visitor#visit_program () (parse_program code);
+            List.rev !selves
+          in
+          Alcotest.(check (list string))
+            "function" [ "self" ]
+            (selves "function f() return self end");
+          Alcotest.(check (list string))
+            "local" [ "self!" ]
+            (selves "local self = {}\nreturn self"));
       t "repeat until loops while the condition is false" (fun () ->
           match (first_statement "repeat x() until c").s with
           | G.DoWhile

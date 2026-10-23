@@ -290,13 +290,11 @@ and map_variable (env : env) (x : CST.variable) : G.expr =
   (* 'global' is a keyword only at the start of a declaration (Lua 5.5),
    * elsewhere it is a name *)
   | `Cont_kw tok -> G.N (G.Id (identifier env tok, G.empty_id_info ())) |> G.e
-  | `Id tok -> (
-      (* self, next, _G and _VERSION were dedicated nodes in the previous
-       * grammar and are plain identifiers now. self is still translated to
-       * IdSpecial Self, as before. *)
-      match identifier env tok with
-      | "self", t -> G.IdSpecial (G.Self, t) |> G.e
-      | id -> G.N (G.Id (id, G.empty_id_info ())) |> G.e)
+  (* self, next, _G and _VERSION were dedicated nodes in the previous
+   * grammar and are plain names now. self is the name of the first
+   * parameter of a method, explicit or implicit in 'function T:m()', so
+   * Naming_AST resolves it to that parameter like any other name. *)
+  | `Id tok -> G.N (G.Id (identifier env tok, G.empty_id_info ())) |> G.e
   | `Brac_index_exp (v1, v2, v3, v4) ->
       let v1 = map_prefix_expression env v1 in
       let v2 = token env v2 (* "[" *) in
