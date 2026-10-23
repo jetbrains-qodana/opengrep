@@ -331,9 +331,61 @@ and map_statement (env : env) (x : CST.statement) : G.stmt list =
           in
           let _v7 = token env v7 (* "end" *) in
           [ G.If (v1, G.Cond v2, then_, elseifs) |> G.s ]
-      | `For_stmt x -> todo env x
+      | `For_stmt (v1, v2, v3, v4, v5) ->
+          let v1 = token env v1 (* "for" *) in
+          let header =
+            match v2 with
+            | `For_gene_clause x -> map_for_generic_clause env x
+            | `For_nume_clause x -> map_for_numeric_clause env x
+          in
+          let block = G.Block (token env v3, map_block env v4, token env v5) in
+          [ G.For (v1, header, block |> G.s) |> G.s ]
       | `Decl x -> map_declaration env x)
   | `Semg_ellips_stmt x -> todo env x
+
+(* for k, v in e1, e2, e3 *)
+and map_for_generic_clause (env : env) ((v1, v2, v3) : CST.for_generic_clause)
+    : G.for_header =
+  let pat =
+    match List_.map (identifier env) (sep_list v1) with
+    | [ id ] -> G.PatId (id, G.empty_id_info ())
+    | ids ->
+        G.PatTuple (fb (List_.map (fun id -> G.PatId (id, G.empty_id_info ())) ids))
+  in
+  let v2 = token env v2 (* "in" *) in
+  (* Usually a single iterator call, e.g. pairs(t), but the expressions
+   * can also be the iterator function, the state and the initial value,
+   * e.g. 'next, t, nil'. They are kept as a tuple; the previous
+   * translation dropped all but the first one. *)
+  let iter =
+    match map_expression_list env v3 with
+    | [ e ] -> e
+    | es -> G.Container (G.Tuple, fb es) |> G.e
+  in
+  G.ForEach (pat, v2, iter)
+
+(* for i = start, limit, step *)
+and map_for_numeric_clause (env : env)
+    ((v1, v2, v3, v4, v5, v6) : CST.for_numeric_clause) : G.for_header =
+  let v1 = identifier env v1 in
+  let v2 = token env v2 (* "=" *) in
+  let v3 = map_expression env v3 in
+  let v4 = token env v4 (* "," *) in
+  let v5 = map_expression env v5 in
+  let v6 =
+    match v6 with
+    | Some (_comma, e) -> [ map_expression env e ]
+    | None -> []
+  in
+  (* for i = start, limit, step iterates i over the range from start to
+   * limit, as the range loops of Rust *)
+  let range =
+    G.Call
+      ( G.IdSpecial (G.Op G.Range, v4) |> G.e,
+        fb (List_.map G.arg (v3 :: v5 :: v6)) )
+    |> G.e
+  in
+  G.ForEach (G.PatId (v1, G.empty_id_info ()), v2, range)
 
 and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
   match x with
