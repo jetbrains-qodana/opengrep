@@ -41,9 +41,6 @@ let token = H.token
 let str = H.str
 let fb = Tok.unsafe_fake_bracket
 
-(* TODO: remove once every construct is translated *)
-let todo (_env : env) _ = failwith "Parse_lua_tree_sitter: not implemented yet"
-
 (* x, y, z *)
 let sep_list (x, xs) = x :: List_.map snd xs
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
@@ -668,12 +665,8 @@ and map_att_name_list (env : env) (kind : G.attribute)
 
 let map_chunk (env : env) (x : CST.chunk) : G.any =
   match x with
-  | `Opt_hash_bang_line_rep_stmt_opt_ret_stmt (shebang, stmts, ret) ->
-      let () =
-        match shebang with
-        | Some tok -> todo env tok
-        | None -> ()
-      in
+  (* the '#!/usr/bin/env lua' line is ignored *)
+  | `Opt_hash_bang_line_rep_stmt_opt_ret_stmt (_shebang, stmts, ret) ->
       G.Ss
         (map_statements env stmts
         @ Option.to_list (Option.map (map_return env) ret))
