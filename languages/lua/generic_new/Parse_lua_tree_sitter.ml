@@ -121,6 +121,9 @@ let map_attrib (env : env) ((v1, v2, v3) : CST.attrib) : G.attribute =
   | "const" -> G.KeywordAttr (G.Const, t)
   | _ -> G.OtherAttribute ((s, t), [])
 
+let global_attr (env : env) tok : G.attribute =
+  G.OtherAttribute (("global", token env tok), [])
+
 (* "..." is a vararg parameter in a program but an ellipsis in a pattern *)
 let vararg_parameter (env : env) tok =
   match env.extra with
@@ -512,9 +515,28 @@ and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
   | `Var_decl (v1, v2) ->
       let local = token env v1 (* "local" *) in
       map_variable_declaration env (G.KeywordAttr (G.Static, local)) v2
-  | `Global_func_decl x -> todo env x
-  | `Global_var_decl x -> todo env x
-  | `Global_impl_var_decl x -> todo env x
+  (* Lua 5.5 global declarations. AST_generic has no 'global' modifier, so
+   * it is an OtherAttribute. *)
+  | `Global_func_decl (v1, v2, v3, v4) ->
+      let global = global_attr env v1 in
+      let tfunction = token env v2 (* "function" *) in
+      let def = map_function_body env v4 tfunction in
+      let ent = G.basic_entity (identifier env v3) ~attrs:[ global ] in
+      [ G.DefStmt (ent, G.FuncDef def) |> G.s ]
+  | `Global_var_decl (v1, `Att_name_list x) ->
+      (* 'global x' only declares that x is global, as Python's 'global x' *)
+      let tglobal = token env v1 in
+      map_att_name_list env (global_attr env v1) x
+      |> List_.map (fun ent -> G.DefStmt (ent, G.UseOuterDecl tglobal) |> G.s)
+  | `Global_var_decl (v1, (`Var_assign _ as x)) ->
+      map_variable_declaration env (global_attr env v1) x
+  | `Global_impl_var_decl (v1, v2, v3) ->
+      (* 'global *' and 'global <const> *': all the free names are globals *)
+      let v1 = token env v1 (* "global" *) in
+      let attrs = Option.to_list (Option.map (map_attrib env) v2) in
+      let v3 = token env v3 (* "*" *) in
+      let args = List_.map (fun x -> G.At x) attrs @ [ G.Tk v3 ] in
+      [ G.DirectiveStmt (G.OtherDirective (("global", v1), args) |> G.d) |> G.s ]
 
 (* local a, b [= x, y] *)
 and map_variable_declaration (env : env) (kind : G.attribute)

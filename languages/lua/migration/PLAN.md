@@ -47,7 +47,7 @@ Items 1-21 follow the numbering of the initial gap analysis.
 | 10 | semgrep extension: metavariables, incl. `$...ARGS` | `identifier` is the word token, so it must remain a single token |
 | 11 | Rewrite of the CST -> AST_generic converter (several commits: skeleton, expressions, statements, loops, functions, tables, patterns) | `languages/lua/generic_new`, library `parser_lua.ast_generic_new`. Not linked into any executable until item 22 |
 | 12 | Lua 5.4 attributes `<const>` / `<close>` (and the 5.5 prefix form `local <const> a, b`) | `<const>` -> `KeywordAttr Const`, others -> `OtherAttribute` |
-| 13 | Lua 5.5 `global` variable declarations | without value -> `UseOuterDecl` (like Python's `global`), with value -> `VarDef` with a `global` attribute |
+| 13 | Lua 5.5 `global` declarations: `global x [= v]`, `global function f`, `global [<attr>] *` | without value -> `UseOuterDecl` (like Python's `global`), with value -> `VarDef` with a `global` attribute, function -> `FuncDef` with a `global` attribute, `global *` -> `OtherDirective` |
 | 14 | Lua 5.5 named vararg parameter `...args` | `ParamRest` with a name |
 | 15 | Contextual keyword `global` used as a name | plain identifier |
 | 16 | Strings: structured content, escape sequences, long brackets | value is the source text between the delimiters, as before |
