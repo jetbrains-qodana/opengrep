@@ -672,6 +672,9 @@ let map_chunk (env : env) (x : CST.chunk) : G.any =
         @ Option.to_list (Option.map (map_return env) ret))
   | `Semg_exp (_v1, v2) -> G.E (map_expression env v2)
 
+(* Comments are extras of the grammar (they are not in the CST) and are
+ * ignored. Unlike with the previous grammar, '-- [[' starts a line comment
+ * and not a block comment, as in Lua. *)
 let parse file =
   H.wrap_parser
     (fun () -> Tree_sitter_lua_new.Parse.file !!file)
