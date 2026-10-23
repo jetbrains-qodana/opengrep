@@ -1,0 +1,10 @@
+digraph G {
+  "getTaintedData";
+  "main";
+  "processData";
+  
+  
+  "getTaintedData" -> "main";
+  "processData" -> "main";
+  
+  }
