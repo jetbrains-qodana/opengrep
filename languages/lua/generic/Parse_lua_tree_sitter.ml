@@ -348,8 +348,9 @@ and map_table_constructor (env : env) ((v1, v2, v3) : CST.table_constructor) :
   let fields =
     match v2 with
     | Some (v1, v2, _v3) ->
-        (* the positional fields get the next integer key, from 1 *)
-        let positions = ref 0 in
+        (* the positional fields get the next integer key, from 1. In a
+         * pattern, the position is unknown after a '...' (None). *)
+        let positions = ref (Some 0) in
         let first = map_field env positions v1 in
         first :: List_.map (fun (_sep, x) -> map_field env positions x) v2
     | None -> []
@@ -357,7 +358,8 @@ and map_table_constructor (env : env) ((v1, v2, v3) : CST.table_constructor) :
   let v3 = token env v3 (* "}" *) in
   G.Container (G.Dict, (v1, fields, v3)) |> G.e
 
-and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
+and map_field (env : env) (positions : int option ref) (x : CST.field) :
+    G.expr =
   match x with
   | `LBRACK_exp_RBRACK_EQ_exp (v1, v2, v3, v4, v5) ->
       let _v1 = token env v1 (* "[" *) in
@@ -381,11 +383,21 @@ and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
       let v = map_expression env x in
       match v.e with
       (* an ellipsis in a pattern stands for fields, not for a value *)
-      | G.Ellipsis _ -> v
+      | G.Ellipsis _ ->
+          positions := None;
+          v
       | _ ->
           (* { a, b } is { [1] = a, [2] = b } *)
-          incr positions;
-          let key = G.L (G.Int (Parsed_int.of_int !positions)) |> G.e in
+          let key =
+            match !positions with
+            | Some n ->
+                positions := Some (n + 1);
+                G.L (G.Int (Parsed_int.of_int (n + 1))) |> G.e
+            | None ->
+                (* { ..., b }: b is at an unknown position, so any key.
+                 * This also matches a named field, { k = b }. *)
+                G.N (G.Id (("$_", G.fake "$_"), G.empty_id_info ())) |> G.e
+          in
           G.keyval key (G.fake "=") v)
 
 (* the body is a block delimited by the 'function' and 'end' tokens *)

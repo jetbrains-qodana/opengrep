@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d32-positional-after-ellipsis
+    languages: [lua]
+    severity: INFO
+    message: 'D32: positional fields after an ellipsis'
+    pattern: 'd32_q({..., $B})'
