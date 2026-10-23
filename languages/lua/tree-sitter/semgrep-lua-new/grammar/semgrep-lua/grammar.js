@@ -48,5 +48,17 @@ module.exports = grammar(standard_grammar, {
       field('name', $.identifier),
       $._vararg_parameter,
     ),
+
+    // Metavariables. Upstream identifiers already accept '$' ('$X'), we add
+    // metavariable ellipses ('$...ARGS'). 'identifier' is the word token
+    // (used for keyword extraction), so it must remain a single token: the
+    // first alternative is the upstream definition.
+    identifier: _ => token(choice(
+      seq(
+        /[^\p{Control}\s+\-*/%^#&~|<>=(){}\[\];:,.\\'"\d]/,
+        /[^\p{Control}\s+\-*/%^#&~|<>=(){}\[\];:,.\\'"]*/,
+      ),
+      /\$\.\.\.[A-Z_][A-Z_0-9]*/,
+    )),
   }
 });
