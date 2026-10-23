@@ -14,3 +14,4 @@ repository (as the other `semgrep-*` parsers):
 * `scripts/regenerate.sh`: regenerates the parser. It requires the
   tree-sitter CLI 0.22.6 (`TREE_SITTER`), the version of the tree-sitter
   runtime linked by opengrep, and produces tables with ABI 14.
+* `templates/`: templates of the generated dune files.
