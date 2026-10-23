@@ -110,6 +110,28 @@ let vararg_expression (env : env) tok =
   | Pattern -> G.Ellipsis tok
   | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
 
+(* "..." is a vararg parameter in a program but an ellipsis in a pattern *)
+let vararg_parameter (env : env) tok =
+  match env.extra with
+  | Pattern -> G.ParamEllipsis tok
+  | Target -> G.ParamRest (tok, G.param_of_id ("...", tok))
+
+let map_parameter (env : env) (x : CST.parameter) : G.parameter =
+  match x with
+  | `Id tok -> G.Param (G.param_of_id (identifier env tok))
+  | `Vararg_param (v1, None) -> vararg_parameter env (token env v1) (* "..." *)
+  | `Vararg_param (v1, Some v2) -> todo env (v1, v2)
+
+let map_parameters (env : env) ((v1, v2, v3) : CST.parameters) : G.parameters =
+  let lp = token env v1 (* "(" *) in
+  let params =
+    match v2 with
+    | Some x -> List_.map (map_parameter env) (sep_list x)
+    | None -> []
+  in
+  let rp = token env v3 (* ")" *) in
+  (lp, params, rp)
+
 let binary_operator (x : CST.binary_expression) =
   match x with
   | `Exp_or_exp (v1, v2, v3) -> (v1, G.Or, v2, v3)
@@ -144,7 +166,9 @@ let rec map_expression (env : env) (x : CST.expression) : G.expr =
       | `Num tok -> todo env tok
       | `Str x -> todo env x
       | `Vararg_exp tok -> vararg_expression env (token env tok) |> G.e
-      | `Func_defi x -> todo env x
+      | `Func_defi (v1, v2) ->
+          let v1 = token env v1 (* "function" *) in
+          G.Lambda (map_function_body env v2 v1) |> G.e
       | `Var x -> map_variable env x
       | `Func_call x -> map_function_call env x
       | `Paren_exp x -> map_parenthesized_expression env x
@@ -238,11 +262,25 @@ and map_arguments (env : env) (x : CST.arguments) : G.arguments =
 and map_expression_list (env : env) (x : CST.expression_list) : G.expr list =
   List_.map (map_expression env) (sep_list x)
 
+(* the body is a block delimited by the 'function' and 'end' tokens *)
+and map_function_body (env : env) ((v1, v2, v3) : CST.function_body)
+    (tfunction : Tok.t) : G.function_definition =
+  let fparams = map_parameters env v1 in
+  let body = G.Block (tfunction, map_block env v2, token env v3) |> G.s in
+  {
+    G.fparams;
+    frettype = None;
+    fkind = (G.Function, tfunction);
+    fbody = G.FBStmt body;
+  }
+
 (*****************************************************************************)
 (* Statements *)
 (*****************************************************************************)
+(* Statements are mutually recursive with expressions because of the bodies
+ * of anonymous functions. *)
 
-let rec map_block (env : env) (x : CST.block option) : G.stmt list =
+and map_block (env : env) (x : CST.block option) : G.stmt list =
   match x with
   | None -> []
   | Some (`Rep1_stmt_opt_ret_stmt (stmts, ret)) ->
@@ -389,8 +427,25 @@ and map_for_numeric_clause (env : env)
 
 and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
   match x with
-  | `Func_decl x -> todo env x
-  | `Local_func_decl x -> todo env x
+  | `Func_decl (v1, v2, v3) ->
+      let tfunction = token env v1 (* "function" *) in
+      let name =
+        match v2 with
+        | `Func_name_prefix_exp (`Id tok) -> H2.name_of_id (identifier env tok)
+        | x -> todo env x
+      in
+      let def = map_function_body env v3 tfunction in
+      let ent = { G.name = G.EN name; G.attrs = []; G.tparams = None } in
+      [ G.DefStmt (ent, G.FuncDef def) |> G.s ]
+  | `Local_func_decl (v1, v2, v3, v4) ->
+      let local = token env v1 (* "local" *) in
+      let tfunction = token env v2 (* "function" *) in
+      let def = map_function_body env v4 tfunction in
+      let ent =
+        G.basic_entity (identifier env v3)
+          ~attrs:[ G.KeywordAttr (G.Static, local) ]
+      in
+      [ G.DefStmt (ent, G.FuncDef def) |> G.s ]
   | `Var_decl (v1, v2) ->
       let local = token env v1 (* "local" *) in
       map_variable_declaration env (G.KeywordAttr (G.Static, local)) v2
