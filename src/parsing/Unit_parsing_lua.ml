@@ -444,6 +444,30 @@ let tests =
                  (* the main chunk of Lua takes varargs *)
                  "a, b = ...";
                ]));
+      t "the body of a function goes from its parameters to its end"
+        (fun () ->
+          let bodies = ref [] in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_function_definition env def =
+                (match def.fbody with
+                | G.FBStmt { s = G.Block (l, _, r); _ } ->
+                    bodies :=
+                      (Tok.content_of_tok l ^ " " ^ Tok.content_of_tok r)
+                      :: !bodies
+                | _ -> ());
+                super#visit_function_definition env def
+            end
+          in
+          visitor#visit_program ()
+            (parse_program
+               "function f(a) end\n\
+                local function g() end\n\
+                h = function(...) end");
+          Alcotest.(check (list string))
+            "bodies" [ ") end"; ") end"; ") end" ] (List.rev !bodies));
       t "a table constructor is a dictionary of key-value pairs" (fun () ->
           let fields (any : G.any) =
             let fields = ref [] in

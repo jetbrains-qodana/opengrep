@@ -394,11 +394,13 @@ and map_field (env : env) (positions : int ref) (x : CST.field) : G.expr =
           let key = G.L (G.Int (Parsed_int.of_int !positions)) |> G.e in
           G.keyval key (G.fake "=") v)
 
-(* the body is a block delimited by the 'function' and 'end' tokens *)
+(* The body is a block from the ')' of the parameters to the 'end', so
+ * that it doesn't have the range of the whole function definition (which
+ * is also the range of the file for a file that is a single function). *)
 and map_function_body (env : env) ((v1, v2, v3) : CST.function_body)
     (tfunction : Tok.t) : G.function_definition =
-  let fparams = map_parameters env v1 in
-  let body = G.Block (tfunction, map_block env v2, token env v3) |> G.s in
+  let ((_, _, rparen) as fparams) = map_parameters env v1 in
+  let body = G.Block (rparen, map_block env v2, token env v3) |> G.s in
   {
     G.fparams;
     frettype = None;
