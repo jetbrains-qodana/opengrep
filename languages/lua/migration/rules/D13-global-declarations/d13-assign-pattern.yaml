@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d13-assign-pattern
+    languages: [lua]
+    severity: INFO
+    message: 'D13: an assignment pattern matches global and local declarations'
+    pattern: $X = d13_v

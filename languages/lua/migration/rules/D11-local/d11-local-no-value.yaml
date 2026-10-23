@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d11-local-no-value
+    languages: [lua]
+    severity: INFO
+    message: 'D11: local declaration without a value'
+    pattern: local $X

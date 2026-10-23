@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d35-sequence
+    languages: [lua]
+    severity: INFO
+    message: 'D35: statement ellipsis between two statements'
+    pattern: |
+      d35_open()
+      ...
+      d35_close()

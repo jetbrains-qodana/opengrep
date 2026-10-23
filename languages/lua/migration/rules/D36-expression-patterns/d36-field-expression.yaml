@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d36-field-expression
+    languages: [lua]
+    severity: INFO
+    message: 'D36: field access pattern'
+    pattern: d36_t.$F

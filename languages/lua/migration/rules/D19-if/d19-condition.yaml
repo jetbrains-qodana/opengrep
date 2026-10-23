@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d19-condition
+    languages: [lua]
+    severity: INFO
+    message: 'D19: if condition'
+    pattern: |
+      if $X == 1 then
+        ...
+      end

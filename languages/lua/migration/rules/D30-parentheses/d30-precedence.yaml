@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d30-precedence
+    languages: [lua]
+    severity: INFO
+    message: 'D30: parentheses group operands'
+    pattern: ($X + $Y) * 2

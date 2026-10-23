@@ -1,0 +1,13 @@
+rules:
+  - id: lua-mig-d37-first-param
+    languages: [lua]
+    severity: INFO
+    message: 'D37: ellipsis after the first parameter'
+    patterns:
+      - pattern: |
+          function $F($FIRST, ...)
+            ...
+          end
+      - metavariable-regex:
+          metavariable: $FIRST
+          regex: ^ctx$

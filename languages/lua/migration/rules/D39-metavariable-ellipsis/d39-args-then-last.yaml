@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d39-args-then-last
+    languages: [lua]
+    severity: INFO
+    message: 'D39: metavariable ellipsis followed by an argument'
+    pattern: d39_f($...ARGS, d39_last)

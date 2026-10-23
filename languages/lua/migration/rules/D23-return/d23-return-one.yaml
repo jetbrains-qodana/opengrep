@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d23-return-one
+    languages: [lua]
+    severity: INFO
+    message: 'D23: return one value'
+    pattern: return d23_v

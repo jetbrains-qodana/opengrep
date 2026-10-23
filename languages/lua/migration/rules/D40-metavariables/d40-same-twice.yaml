@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d40-same-twice
+    languages: [lua]
+    severity: INFO
+    message: 'D40: the same metavariable twice'
+    pattern: d40($X, $X)

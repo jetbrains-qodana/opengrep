@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d21-loop-variable
+    languages: [lua]
+    severity: INFO
+    message: 'D21: the loop variable is bound'
+    pattern: |
+      for $I = 1, $N do
+        ...
+        d21_use($I)
+      end

@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d06-numeric-values
+    languages: [lua]
+    severity: INFO
+    message: 'D06: values of integer and float literals'
+    patterns:
+      - pattern: d06_cmp($X)
+      - metavariable-comparison:
+          metavariable: $X
+          comparison: $X > 100

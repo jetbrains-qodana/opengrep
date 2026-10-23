@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d06-binary-literal
+    languages: [lua]
+    severity: INFO
+    message: 'D06: binary literals'
+    pattern: d06_bin($X)

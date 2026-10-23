@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d19-else
+    languages: [lua]
+    severity: INFO
+    message: 'D19: else branch'
+    pattern: |
+      if $C then
+        ...
+      else
+        d19_e()
+      end

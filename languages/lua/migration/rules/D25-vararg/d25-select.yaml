@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d25-select
+    languages: [lua]
+    severity: INFO
+    message: 'D25: vararg bound to a metavariable'
+    pattern: select('#', $X)

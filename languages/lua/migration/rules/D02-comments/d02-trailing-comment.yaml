@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d02-trailing-comment
+    languages: [lua]
+    severity: INFO
+    message: 'D02: trailing comments do not break statements'
+    pattern: d02_a($X)

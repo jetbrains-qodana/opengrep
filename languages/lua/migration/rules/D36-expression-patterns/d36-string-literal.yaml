@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d36-string-literal
+    languages: [lua]
+    severity: INFO
+    message: 'D36: string literal pattern'
+    pattern: '"d36_literal"'

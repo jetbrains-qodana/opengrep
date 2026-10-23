@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d24-goto
+    languages: [lua]
+    severity: INFO
+    message: 'D24: goto'
+    pattern: goto $L

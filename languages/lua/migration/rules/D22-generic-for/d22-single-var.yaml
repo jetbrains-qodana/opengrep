@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d22-single-var
+    languages: [lua]
+    severity: INFO
+    message: 'D22: generic for with one variable'
+    pattern: |
+      for $X in $IT do
+        ...
+      end

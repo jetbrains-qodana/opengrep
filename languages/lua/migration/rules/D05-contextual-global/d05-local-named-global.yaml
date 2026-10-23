@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d05-local-named-global
+    languages: [lua]
+    severity: INFO
+    message: 'D05: ''global'' as a local variable name'
+    pattern: local global = $V

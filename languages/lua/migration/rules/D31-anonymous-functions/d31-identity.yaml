@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d31-identity
+    languages: [lua]
+    severity: INFO
+    message: 'D31: anonymous function'
+    pattern: |
+      function($A)
+        return $A
+      end

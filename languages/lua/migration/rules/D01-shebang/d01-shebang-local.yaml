@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d01-shebang-local
+    languages: [lua]
+    severity: INFO
+    message: 'D01: declarations after a shebang line'
+    pattern: local $X = 1

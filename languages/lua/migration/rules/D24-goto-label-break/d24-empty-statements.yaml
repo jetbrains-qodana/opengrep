@@ -1,0 +1,8 @@
+rules:
+  - id: lua-mig-d24-empty-statements
+    languages: [lua]
+    severity: INFO
+    message: 'D24: empty statements are ignored'
+    pattern: |
+      d24_a()
+      d24_b()

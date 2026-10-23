@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d11-local-value
+    languages: [lua]
+    severity: INFO
+    message: 'D11: local declaration with a value'
+    pattern: local $X = d11_v

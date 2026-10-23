@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d16-deep-method-name
+    languages: [lua]
+    severity: INFO
+    message: 'D16: deep qualified method names'
+    pattern: |
+      function d16.a.b:$M(...)
+        ...
+      end

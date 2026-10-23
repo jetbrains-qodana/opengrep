@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d36-binary-expression
+    languages: [lua]
+    severity: INFO
+    message: 'D36: binary expression pattern'
+    pattern: $X + 1

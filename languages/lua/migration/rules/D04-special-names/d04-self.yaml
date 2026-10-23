@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d04-self
+    languages: [lua]
+    severity: INFO
+    message: 'D04: self in a method body'
+    patterns:
+      - pattern-inside: |
+          function $C:$M(...)
+            ...
+          end
+      - pattern: self.$F = $V

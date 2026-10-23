@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d13-global-no-value
+    languages: [lua]
+    severity: INFO
+    message: 'D13: global declaration without a value'
+    pattern: global $X

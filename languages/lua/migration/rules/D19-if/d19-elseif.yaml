@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d19-elseif
+    languages: [lua]
+    severity: INFO
+    message: 'D19: elseif branches'
+    pattern: |
+      if $C then
+        ...
+      elseif $D then
+        ...
+      end

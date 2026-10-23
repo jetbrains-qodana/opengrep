@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d13-global-with-value
+    languages: [lua]
+    severity: INFO
+    message: 'D13: global declaration with a value'
+    pattern: global $X = $V

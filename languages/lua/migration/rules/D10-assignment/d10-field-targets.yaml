@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d10-field-targets
+    languages: [lua]
+    severity: INFO
+    message: 'D10: fields and index targets'
+    pattern: $T.$F = d10_v

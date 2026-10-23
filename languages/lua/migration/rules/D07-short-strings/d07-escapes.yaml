@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d07-escapes
+    languages: [lua]
+    severity: INFO
+    message: 'D07: escape sequences'
+    pattern: d07_s("...")

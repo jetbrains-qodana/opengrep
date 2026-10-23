@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d03-utf8-identifier
+    languages: [lua]
+    severity: INFO
+    message: 'D03: LuaJIT UTF-8 identifiers'
+    pattern: local $X = 42

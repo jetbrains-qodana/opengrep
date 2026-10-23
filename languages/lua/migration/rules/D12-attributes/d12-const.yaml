@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d12-const
+    languages: [lua]
+    severity: INFO
+    message: 'D12: <const> attribute'
+    pattern: local $X <const> = $V

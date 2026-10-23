@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d03-identifier-chars
+    languages: [lua]
+    severity: INFO
+    message: 'D03: underscores and digits'
+    pattern: _d03_x9(...)

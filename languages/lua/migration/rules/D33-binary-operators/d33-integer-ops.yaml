@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d33-integer-ops
+    languages: [lua]
+    severity: INFO
+    message: 'D33: floor division, bitwise and comparison operators'
+    pattern-either:
+      - pattern: $X // d33_n
+      - pattern: $X ~ d33_n
+      - pattern: $X ~= d33_n
+      - pattern: $X << d33_n
