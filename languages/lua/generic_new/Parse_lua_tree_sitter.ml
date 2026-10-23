@@ -111,6 +111,16 @@ let vararg_expression (env : env) tok =
   | Pattern -> G.Ellipsis tok
   | Target -> G.N (G.Id (("...", tok), G.empty_id_info ()))
 
+(* Lua 5.4 attributes of local variables, 'local x <const> = 1'. The only
+ * attributes defined by Lua are 'const' and 'close'. *)
+let map_attrib (env : env) ((v1, v2, v3) : CST.attrib) : G.attribute =
+  let _v1 = token env v1 (* "<" *) in
+  let s, t = identifier env v2 in
+  let _v3 = token env v3 (* ">" *) in
+  match s with
+  | "const" -> G.KeywordAttr (G.Const, t)
+  | _ -> G.OtherAttribute ((s, t), [])
+
 (* "..." is a vararg parameter in a program but an ellipsis in a pattern *)
 let vararg_parameter (env : env) tok =
   match env.extra with
@@ -522,11 +532,9 @@ and map_variable_declaration (env : env) (kind : G.attribute)
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
 and map_att_name_list (env : env) (kind : G.attribute)
     ((v1, v2, v3, v4) : CST.att_name_list) : G.entity list =
-  let attrib x =
-    match x with
-    | None -> []
-    | Some x -> todo env x
-  in
+  let attrib x = Option.to_list (Option.map (map_attrib env) x) in
+  (* Lua 5.5: an attribute before the first name applies to all the names,
+   * 'local <const> a, b' *)
   let prefix = attrib v1 in
   (v2, v3) :: List_.map (fun (_comma, id, attr) -> (id, attr)) v4
   |> List_.map (fun (id, attr) ->
