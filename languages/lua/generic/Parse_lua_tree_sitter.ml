@@ -69,16 +69,20 @@ let str env tok =
 let sep_list (x, xs) = x :: List_.map snd xs
 let identifier (env : env) (tok : CST.identifier) : G.ident = str env tok
 
-(* local a, b = x gives a = x and b without a value *)
-let mk_vars xs ys =
+(* local a, b = x gives a = x and b without a value. The values without a
+ * name, g() in local a = f(), g(), are still evaluated, so they are kept as
+ * expression statements (they were dropped). *)
+let mk_vars (xs : G.entity list) (ys : G.expr list) : G.stmt list =
   let rec aux xs ys =
     match (xs, ys) with
     | [], [] -> []
-    | x :: xs, [] -> (x, G.VarDef G.empty_var) :: aux xs ys
+    | x :: xs, [] -> (G.DefStmt (x, G.VarDef G.empty_var) |> G.s) :: aux xs ys
     | x :: xs, y :: ys ->
-        (x, G.VarDef { G.vinit = Some y; vtype = None; vtok = G.no_sc })
+        (G.DefStmt
+           (x, G.VarDef { G.vinit = Some y; vtype = None; vtok = G.no_sc })
+        |> G.s)
         :: aux xs ys
-    | [], _y :: _ys -> []
+    | [], ys -> List_.map (fun y -> G.ExprStmt (y, G.sc) |> G.s) ys
   in
   aux xs ys
 
@@ -662,7 +666,7 @@ and map_variable_declaration (env : env) (kind : G.attribute)
         (v1, map_expression_list env v3)
   in
   let entities = map_att_name_list env kind names in
-  mk_vars entities values |> List_.map (fun x -> G.DefStmt x |> G.s)
+  mk_vars entities values
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
 and map_att_name_list (env : env) (kind : G.attribute)
