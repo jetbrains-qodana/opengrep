@@ -55,10 +55,8 @@ class ['self] metavar_checker =
 
     method! visit_ident (error, lang) id =
       let str, _tok = id in
-      (* str is empty for a token inserted by tree-sitter to recover from a
-       * syntax error *)
       if
-        String.starts_with ~prefix:"$" str
+        str.[0] = '$'
         && (not (Mvar.is_metavar_name str))
         && not (Mvar.is_metavar_ellipsis str)
       then
