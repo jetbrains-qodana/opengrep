@@ -360,6 +360,34 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "the implicit self of a method is not required by the rule prefilter"
+        (fun () ->
+          let rule =
+            {|rules:
+  - id: method
+    message: m
+    languages: [lua]
+    severity: INFO
+    pattern: |
+      function T:m()
+        ...
+      end
+|}
+          in
+          let rules =
+            UTmp.with_temp_file ~contents:rule ~suffix:".yaml" (fun file ->
+                Parse_rule.parse file |> Result.get_ok)
+          in
+          rules
+          |> List.iter (fun rule ->
+                 match Analyze_rule.regexp_prefilter_of_rule ~cache:None rule with
+                 | None -> Alcotest.fail "no prefilter"
+                 | Some (f, func) ->
+                     if not (func "function T:m()\n  print(1)\nend\n") then
+                       Alcotest.failf
+                         "the prefilter skips a target that the rule matches: \
+                          %s"
+                         (Semgrep_prefilter_j.string_of_formula f)));
       t "self refers to the self parameter" (fun () ->
           let resolved = ref [] in
           let visitor =
