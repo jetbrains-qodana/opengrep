@@ -813,17 +813,7 @@ let full_rule_regression_tests () =
   let tests1 = Test_engine.make_tests ~prepend_lang:true [ path ] in
   let path = tests_path / "rules_v2" in
   let tests2 = Test_engine.make_tests ~prepend_lang:true [ path ] in
-  let tests =
-    tests1 @ tests2
-    |> List_.map (fun (test : Testo.t) ->
-           (* This file was an invalid rule (no message) and was silently
-              skipped until invalid rule files made the test fail. *)
-           if test.name =~ ".*tests/rules/ts_type.yaml" then
-             Testo.update test
-               ~expected_outcome:
-                 (Should_fail "false positive on the destructured parameter")
-           else test)
-  in
+  let tests = tests1 @ tests2 in
   let groups =
     tests
     |> List_.map (fun (test : Testo.t) ->
