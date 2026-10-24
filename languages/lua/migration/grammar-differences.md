@@ -5,7 +5,7 @@
   `identifier: /\$?[a-zA-Z_][a-zA-Z0-9_]*/`).
 * **New**: [tree-sitter-grammars/tree-sitter-lua](https://github.com/tree-sitter-grammars/tree-sitter-lua) `v0.5.0`
   plus the semgrep extension in
-  [`semgrep-lua-new/grammar/semgrep-lua/grammar.js`](../tree-sitter/semgrep-lua-new/grammar/semgrep-lua/grammar.js).
+  [`semgrep-lua/fyi/semgrep-grammars/src/semgrep-lua/grammar.js`](https://github.com/jetbrains-qodana/opengrep-lua-new/blob/main/fyi/semgrep-grammars/src/semgrep-lua/grammar.js).
 
 Each difference has an id `Dnn` and a directory `rules/Dnn-*` with 2-3
 synthetic rules (meaningless as security rules) and annotated targets. They

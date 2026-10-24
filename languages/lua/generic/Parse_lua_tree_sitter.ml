@@ -23,7 +23,7 @@ module Log = Log_parser_lua.Log
 (*****************************************************************************)
 (* Prelude *)
 (*****************************************************************************)
-(* Lua parser using languages/lua/tree-sitter/semgrep-lua-new, based on
+(* Lua parser using languages/lua/tree-sitter/semgrep-lua, based on
  * tree-sitter-grammars/tree-sitter-lua, and converting directly to
  * AST_generic.
  *
@@ -184,7 +184,8 @@ let long_string_content s =
 
 (* The value of a short string is its source text between the quotes:
  * escape sequences are kept as they are, as with the previous grammar.
- * A short string is a single token (see grammar/semgrep-lua/grammar.js). *)
+ * A short string is a single token (see
+ * semgrep-lua/fyi/semgrep-grammars/src/semgrep-lua/grammar.js). *)
 let map_string (env : env) (x : CST.string_) : G.expr =
   match x with
   | `Quote_str tok ->

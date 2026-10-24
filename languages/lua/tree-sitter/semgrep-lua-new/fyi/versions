@@ -1,8 +1,0 @@
-tree-sitter: tree-sitter 0.22.6
-ABI: 14
-ocaml-tree-sitter: opengrep/ocaml-tree-sitter-core@e737fd1a2d866913a0e6d322a7f8d0d4e26c9731
-
-repository: https://github.com/tree-sitter-grammars/tree-sitter-lua
-tag: v0.5.0
-commit: 10fe0054734eec83049514ea2e718b2a56acd0c9
-files: grammar.js, src/scanner.c, LICENSE.md (unmodified copies)
