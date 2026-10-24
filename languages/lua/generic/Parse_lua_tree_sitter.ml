@@ -27,8 +27,8 @@ module Log = Log_parser_lua.Log
  * tree-sitter-grammars/tree-sitter-lua, and converting directly to
  * AST_generic.
  *
- * See languages/lua/migration/grammar-differences.md for the differences
- * with the previous grammar and how they are translated.
+ * The rules in tests/rules/lua_migration check the translation of each
+ * difference with the previous grammar (D01-D40).
  *)
 
 (*****************************************************************************)

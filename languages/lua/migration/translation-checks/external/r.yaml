@@ -1,6 +1,0 @@
-rules:
-- id: exec
-  pattern: os.execute(...)
-  message: x
-  languages: [lua]
-  severity: WARNING
