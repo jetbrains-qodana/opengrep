@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d06-luajit-suffixes
+    languages: [lua]
+    severity: INFO
+    message: 'D06: LuaJIT 64-bit and imaginary literals'
+    pattern: d06_jit($X)

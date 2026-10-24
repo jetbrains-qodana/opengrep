@@ -130,6 +130,40 @@ let name_text (name : G.name) =
   | G.IdQualified { name_last = last, _; name_middle = None; _ } -> fst last
   | G.IdQualified _ -> "?"
 
+(* Parsing an invalid pattern must fail with a parse error, never with
+ * another exception. tree-sitter recovers from syntax errors by inserting
+ * empty tokens, which crashed the translation of strings and the checks
+ * of metavariables. *)
+let check_pattern_does_not_crash code =
+  match Parse_pattern.parse_pattern Lang.Lua code with
+  | Ok any ->
+      (* nor accept the pattern with an empty name inserted by tree-sitter *)
+      let visitor =
+        object
+          inherit [_] G.iter_no_id_info as super
+
+          method! visit_ident env ((s, _) as id) =
+            if s = "" then
+              Alcotest.failf "the pattern %S has an empty name" code;
+            super#visit_ident env id
+        end
+      in
+      visitor#visit_any () any
+  | Error _ -> ()
+  | exception Parsing.Parse_error -> ()
+  | exception Failure "no pattern found" -> ()
+  | exception exn ->
+      Alcotest.failf "the pattern %S raised %s" code (Printexc.to_string exn)
+
+(* the prefixes of a pattern that end at a delimiter *)
+let prefixes code =
+  let delimiters = " \n\t(){}[],.:\"'=" in
+  String.to_seq code
+  |> Seq.mapi (fun i c -> (i, c))
+  |> Seq.filter (fun (_, c) -> String.contains delimiters c)
+  |> Seq.map (fun (i, _) -> String.sub code 0 (i + 1))
+  |> List.of_seq
+
 (*****************************************************************************)
 (* Tests *)
 (*****************************************************************************)
@@ -137,6 +171,119 @@ let name_text (name : G.name) =
 let tests =
   Testo.categorize "parsing_lua"
     [
+      t "an invalid pattern is a parse error, not a crash" (fun () ->
+          [
+            (* a missing string argument: o:m"" *)
+            "{..., $KEY: $VALUE, ...}";
+            "$X:$Y";
+            "f(";
+            "x = \"";
+            "local a <";
+            "function $F(";
+            "{ [";
+          ]
+          |> List.iter check_pattern_does_not_crash);
+      t "the prefixes of the Lua pattern tests do not crash" (fun () ->
+          Common2.glob "tests/patterns/lua/*.sgrep"
+          @ Common2.glob "tests/patterns/POLYGLOT/*.sgrep"
+          |> List.iter (fun file ->
+                 let code = UFile.read_file (Fpath.v file) in
+                 code :: prefixes code
+                 |> List.iter check_pattern_does_not_crash));
+      t "a pattern starting with # is a length expression, not a shebang"
+        (fun () ->
+          match parse_pattern "#$T > 0" with
+          | G.E
+              {
+                e =
+                  G.Call
+                    ( { e = G.IdSpecial (G.Op G.Gt, _); _ },
+                      ( _,
+                        G.Arg
+                          {
+                            e =
+                              G.Call
+                                ({ e = G.IdSpecial (G.Op G.Length, _); _ }, _);
+                            _;
+                          }
+                        :: _,
+                        _ ) );
+                _;
+              } ->
+              ()
+          | _ -> Alcotest.fail "expected the expression #$T > 0");
+      t "the Lua pattern tests are not empty patterns" (fun () ->
+          (* e.g. '#$T' was parsed as a shebang line followed by nothing *)
+          Common2.glob "tests/patterns/lua/*.sgrep"
+          |> List.iter (fun file ->
+                 match parse_pattern (UFile.read_file (Fpath.v file)) with
+                 | G.Ss []
+                 | G.Pr [] ->
+                     Alcotest.failf "%s is an empty pattern" file
+                 | _ -> ()));
+      t "a metavariable alone is a statement in a sequence" (fun () ->
+          match parse_pattern "foo()\n$S\nbar()" with
+          | G.Ss
+              [
+                { s = G.ExprStmt ({ e = G.Call _; _ }, _); _ };
+                { s = G.ExprStmt ({ e = G.N (G.Id (("$S", _), _)); _ }, _); _ };
+                { s = G.ExprStmt ({ e = G.Call _; _ }, _); _ };
+              ] ->
+              ()
+          | _ -> Alcotest.fail "expected three statements");
+      t "a keyword alone is not a metavariable statement" (fun () ->
+          (match parse_pattern "not $X" with
+          | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Not, _); _ }, _); _ }
+            ->
+              ()
+          | _ -> Alcotest.fail "expected the expression not $X");
+          (match parse_pattern "true" with
+          | G.E { e = G.L (G.Bool (true, _)); _ } -> ()
+          | _ -> Alcotest.fail "expected true");
+          match parse_pattern "nil" with
+          | G.E { e = G.L (G.Null _); _ } -> ()
+          | _ -> Alcotest.fail "expected nil");
+      t "an anonymous function is not a statement" (fun () ->
+          (* tree-sitter inserts the missing name of a function declaration:
+           * it was DefStmt with the name "" *)
+          [
+            "foo()\nfunction(...)\n  ...\nend";
+            "function()\n  ...\nend\nbar()";
+            "local f = 1\nfunction($X) return $X end";
+          ]
+          |> List.iter (fun code ->
+                 match Parse_pattern.parse_pattern Lang.Lua code with
+                 | exception Parsing.Parse_error -> ()
+                 | Error _ -> ()
+                 | Ok _ -> Alcotest.failf "the pattern %S parses" code);
+          (* alone, it is an expression *)
+          match parse_pattern "function(...)\n  ...\nend" with
+          | G.E { e = G.Lambda _; _ } -> ()
+          | _ -> Alcotest.fail "expected an anonymous function");
+      t "an integer that doesn't fit in 64 bits is read as Lua does" (fun () ->
+          let literal code =
+            match parse_pattern code with
+            | G.E { e = G.L (G.Int (Some i, _)); _ } -> Int64.to_string i
+            | G.E { e = G.L (G.Float (Some f, _)); _ } -> Printf.sprintf "%g" f
+            | _ -> "?"
+          in
+          (* a decimal integer is a float, a hex one keeps its low 64 bits *)
+          Alcotest.(check (list string))
+            "literals"
+            [ "1e+22"; "578437695752307201"; "-1"; "9223372036854775807" ]
+            (List.map literal
+               [
+                 "10000000000000000000000";
+                 "0x13121110090807060504030201";
+                 "0xffffffffffffffff";
+                 "9223372036854775807";
+               ]));
+      t "an expression pattern can end with a semicolon" (fun () ->
+          match parse_pattern "$X + 1;" with
+          | G.E { e = G.Call ({ e = G.IdSpecial (G.Op G.Plus, _); _ }, _); _ }
+            ->
+              ()
+          | _ -> Alcotest.fail "expected the expression $X + 1");
       t "a vararg parameter is a rest parameter" (fun () ->
           let ast = parse_program "local function f(a, ...) return ... end" in
           (* the conversion fails on a pattern construct *)
@@ -213,6 +360,34 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected the parameters self and x");
+      t "the implicit self of a method is not required by the rule prefilter"
+        (fun () ->
+          let rule =
+            {|rules:
+  - id: method
+    message: m
+    languages: [lua]
+    severity: INFO
+    pattern: |
+      function T:m()
+        ...
+      end
+|}
+          in
+          let rules =
+            UTmp.with_temp_file ~contents:rule ~suffix:".yaml" (fun file ->
+                Parse_rule.parse file |> Result.get_ok)
+          in
+          rules
+          |> List.iter (fun rule ->
+                 match Analyze_rule.regexp_prefilter_of_rule ~cache:None rule with
+                 | None -> Alcotest.fail "no prefilter"
+                 | Some (f, func) ->
+                     if not (func "function T:m()\n  print(1)\nend\n") then
+                       Alcotest.failf
+                         "the prefilter skips a target that the rule matches: \
+                          %s"
+                         (Semgrep_prefilter_j.string_of_formula f)));
       t "self refers to the self parameter" (fun () ->
           let resolved = ref [] in
           let visitor =

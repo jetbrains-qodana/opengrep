@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d17-local-function
+    languages: [lua]
+    severity: INFO
+    message: 'D17: local function'
+    pattern: |
+      local function $F(...)
+        ...
+      end

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d09-method-call-statement
+    languages: [lua]
+    severity: INFO
+    message: 'D09: method call statements'
+    pattern: $O:d09_m()

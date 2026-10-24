@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d38-deep-argument
+    languages: [lua]
+    severity: INFO
+    message: 'D38: deep ellipsis in an argument'
+    pattern: d38_sink(<... d38_src() ...>)

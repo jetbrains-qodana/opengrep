@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d27-chained-methods
+    languages: [lua]
+    severity: INFO
+    message: 'D27: chained method calls'
+    pattern: $X:d27_c()

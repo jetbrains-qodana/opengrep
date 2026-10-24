@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d21-step
+    languages: [lua]
+    severity: INFO
+    message: 'D21: numeric for with step'
+    pattern: |
+      for $I = $A, $B, $S do
+        ...
+      end

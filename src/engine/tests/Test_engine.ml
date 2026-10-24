@@ -184,8 +184,17 @@ let check_parse_errors (rule_file : Fpath.t) (errors : Core_error.ErrorSet.t) :
 
 let read_rules_file ~get_xlang ?fail_callback rule_file =
   match Parse_rule.parse rule_file with
-  (* TODO: fail better with invalid rules? *)
-  | Error _ -> None
+  | Error err ->
+      (match fail_callback with
+      | None ->
+          Logs.err (fun m ->
+              m "invalid rule file %s: %s" !!rule_file
+                (Rule_error.string_of_error err))
+      | Some fail_callback ->
+          fail_callback 1
+            (spf "invalid rule file %s: %s" !!rule_file
+               (Rule_error.string_of_error err)));
+      None
   (* TODO? sanity check rules |> List.iter Check_rule.check; *)
   | Ok [] ->
       (match fail_callback with

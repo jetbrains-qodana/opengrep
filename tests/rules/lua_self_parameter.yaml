@@ -1,0 +1,21 @@
+rules:
+  - id: assignment-to-undeclared-global
+    languages: [lua]
+    severity: WARNING
+    message: assignment to an undeclared global
+    patterns:
+      - pattern: $X = $V
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^[A-Za-z_]\w*$
+      - pattern-not-inside: |
+          function $F(..., $X, ...)
+            ...
+          end
+      - pattern-not-inside: |
+          local function $F(..., $X, ...)
+            ...
+          end
+      - pattern-not-inside: |
+          local $X
+          ...

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d26-chained-call
+    languages: [lua]
+    severity: INFO
+    message: 'D26: call of a call'
+    pattern: d26_mk($X)($Y)

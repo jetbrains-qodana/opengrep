@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d14-inside-global-function
+    languages: [lua]
+    severity: INFO
+    message: 'D14: body of a global function'
+    patterns:
+      - pattern-inside: |
+          global function $F(...)
+            ...
+          end
+      - pattern: d14_call()

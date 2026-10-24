@@ -71,5 +71,8 @@ let is_special_identifier ?lang str =
   || (is_js lang && str = Ast_js.default_entity)
   (* parser_java.mly inserts some implicit this *)
   || (lang =*= Some Lang.Java && str = "this")
+  (* Parse_lua_tree_sitter inserts the implicit self parameter of methods,
+   * function T:m() is function T.m(self) *)
+  || (lang =*= Some Lang.Lua && str = "self")
   || (* TODO: PHP converts some Eval in __builtin *)
   (lang =*= Some Lang.Php && str =~ "__builtin__*")

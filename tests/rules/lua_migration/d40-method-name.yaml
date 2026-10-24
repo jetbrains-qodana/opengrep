@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d40-method-name
+    languages: [lua]
+    severity: INFO
+    message: 'D40: metavariable as a method name'
+    pattern: $O:$M(d40_arg)

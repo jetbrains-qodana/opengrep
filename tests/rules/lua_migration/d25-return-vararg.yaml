@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d25-return-vararg
+    languages: [lua]
+    severity: INFO
+    message: 'D25: return of the vararg'
+    patterns:
+      - pattern-inside: |
+          function $F(...)
+            ...
+          end
+      - pattern: return $X

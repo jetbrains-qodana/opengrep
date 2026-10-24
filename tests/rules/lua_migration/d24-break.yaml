@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d24-break
+    languages: [lua]
+    severity: INFO
+    message: 'D24: break'
+    patterns:
+      - pattern-inside: |
+          while $C do
+            ...
+          end
+      - pattern: break

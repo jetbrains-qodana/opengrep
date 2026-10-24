@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d23-return-semicolon
+    languages: [lua]
+    severity: INFO
+    message: 'D23: return followed by a semicolon'
+    pattern: return $X

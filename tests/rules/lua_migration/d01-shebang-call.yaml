@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d01-shebang-call
+    languages: [lua]
+    severity: INFO
+    message: 'D01: code after a shebang line is parsed'
+    pattern: d01_call(1)

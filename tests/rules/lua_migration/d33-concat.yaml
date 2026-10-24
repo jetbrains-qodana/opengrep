@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d33-concat
+    languages: [lua]
+    severity: INFO
+    message: 'D33: concatenation'
+    pattern: $X .. d33_s

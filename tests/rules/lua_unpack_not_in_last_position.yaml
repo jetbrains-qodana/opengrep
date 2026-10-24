@@ -1,0 +1,15 @@
+rules:
+- id: lua-unpack-not-in-last-position
+  languages: [lua]
+  severity: WARNING
+  message: unpack not in last position is truncated to its first value
+  options:
+    constant_propagation: false
+  patterns:
+    - pattern-either:
+        - pattern: $F(..., $U($T, ...), $Y, ...)
+        - pattern: $O:$M(..., $U($T, ...), $Y, ...)
+        - pattern: '{..., $U($T, ...), $Y, ...}'
+    - metavariable-regex:
+        metavariable: $U
+        regex: ^(unpack|table\.unpack)$

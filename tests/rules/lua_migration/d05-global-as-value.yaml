@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d05-global-as-value
+    languages: [lua]
+    severity: INFO
+    message: 'D05: ''global'' as an expression'
+    pattern: d05_print(global)

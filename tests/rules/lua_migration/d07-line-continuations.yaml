@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d07-line-continuations
+    languages: [lua]
+    severity: INFO
+    message: 'D07: backslash-newline and \z continuations'
+    pattern: d07_s2("...")

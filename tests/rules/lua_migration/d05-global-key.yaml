@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d05-global-key
+    languages: [lua]
+    severity: INFO
+    message: 'D05: ''global'' as a table key'
+    pattern: 'd05_cfg({..., global = $V, ...})'

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d10-swap
+    languages: [lua]
+    severity: INFO
+    message: 'D10: multiple assignment is a tuple assignment'
+    pattern: $A, $B = $B, $A

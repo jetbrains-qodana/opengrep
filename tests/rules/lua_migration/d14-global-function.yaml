@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d14-global-function
+    languages: [lua]
+    severity: INFO
+    message: 'D14: global function declaration'
+    pattern: |
+      global function $F(...)
+        ...
+      end

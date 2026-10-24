@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d08-first-newline
+    languages: [lua]
+    severity: INFO
+    message: 'D08: the newline right after the opening bracket is dropped'
+    pattern: d08_eq("abc")

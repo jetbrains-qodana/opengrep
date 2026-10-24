@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d32-positional
+    languages: [lua]
+    severity: INFO
+    message: 'D32: positional fields'
+    pattern: 'd32_p({ $A, $B })'

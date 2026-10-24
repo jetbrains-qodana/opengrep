@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d04-global-table
+    languages: [lua]
+    severity: INFO
+    message: 'D04: _G and _VERSION are plain names'
+    pattern: _G.$X = $V

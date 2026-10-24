@@ -1,0 +1,3 @@
+for $K, $V in next, $T do
+  ...
+end

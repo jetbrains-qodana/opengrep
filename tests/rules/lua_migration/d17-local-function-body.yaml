@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d17-local-function-body
+    languages: [lua]
+    severity: INFO
+    message: 'D17: body of a local function'
+    patterns:
+      - pattern-inside: |
+          local function $F(...)
+            ...
+          end
+      - pattern: return $X

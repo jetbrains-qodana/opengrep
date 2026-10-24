@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d04-next-call
+    languages: [lua]
+    severity: INFO
+    message: 'D04: next is a plain function name'
+    pattern: next($T, ...)

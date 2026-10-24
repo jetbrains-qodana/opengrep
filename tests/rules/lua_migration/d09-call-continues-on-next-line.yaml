@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d09-call-continues-on-next-line
+    languages: [lua]
+    severity: INFO
+    message: 'D09: a parenthesized expression on the next line continues the call'
+    pattern: d09_b(d09_f)

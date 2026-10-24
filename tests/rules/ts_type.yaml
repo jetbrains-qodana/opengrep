@@ -2,6 +2,7 @@ rules:
 - id: test
   languages:
   - ts
+  message: tainted value used as dangerouslySetInnerHTML
   severity: WARNING
   mode: taint
   pattern-sources:

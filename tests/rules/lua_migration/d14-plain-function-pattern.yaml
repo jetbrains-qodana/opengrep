@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d14-plain-function-pattern
+    languages: [lua]
+    severity: INFO
+    message: 'D14: a plain function pattern matches global and local functions'
+    pattern: |
+      function $F(...)
+        ...
+      end

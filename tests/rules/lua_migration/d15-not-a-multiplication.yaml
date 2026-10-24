@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d15-not-a-multiplication
+    languages: [lua]
+    severity: INFO
+    message: 'D15: global * is not an expression'
+    pattern: $X * $Y

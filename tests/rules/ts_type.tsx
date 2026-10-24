@@ -1,8 +1,8 @@
 export const ErrorDetails = (
   { error }: { error: TestError }
 ) => (
-  // rule-id: test
   {
+    // ruleid: test
     __html: formatDiffMessage(error),
   }
 );

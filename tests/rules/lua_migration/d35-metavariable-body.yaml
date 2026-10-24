@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d35-metavariable-body
+    languages: [lua]
+    severity: INFO
+    message: 'D35: a metavariable alone as the body of a block'
+    pattern: |
+      function $F()
+        $BODY
+      end

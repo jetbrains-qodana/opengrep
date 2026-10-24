@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d29-index
+    languages: [lua]
+    severity: INFO
+    message: 'D29: index access'
+    pattern: d29_t[$K]
