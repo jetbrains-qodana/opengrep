@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d20-while
+    languages: [lua]
+    severity: INFO
+    message: 'D20: while loop'
+    pattern: |
+      while $C do
+        ...
+      end

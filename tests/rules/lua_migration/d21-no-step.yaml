@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d21-no-step
+    languages: [lua]
+    severity: INFO
+    message: 'D21: numeric for without step'
+    pattern: |
+      for $I = $A, $B do
+        ...
+      end

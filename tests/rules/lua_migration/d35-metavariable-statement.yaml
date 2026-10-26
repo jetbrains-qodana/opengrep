@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d35-metavariable-statement
+    languages: [lua]
+    severity: INFO
+    message: 'D35: a metavariable alone stands for a statement'
+    pattern: |
+      d35_open()
+      $S
+      d35_close()

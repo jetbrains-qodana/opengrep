@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d28-field-name-metavar
+    languages: [lua]
+    severity: INFO
+    message: 'D28: field name bound to a metavariable'
+    patterns:
+      - pattern: d28_cfg.$K
+      - metavariable-regex:
+          metavariable: $K
+          regex: ^opt_

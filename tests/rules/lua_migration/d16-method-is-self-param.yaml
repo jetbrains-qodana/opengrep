@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d16-method-is-self-param
+    languages: [lua]
+    severity: INFO
+    message: 'D16: a method definition has an implicit self parameter'
+    pattern: |
+      function $T:$M($X)
+        ...
+      end

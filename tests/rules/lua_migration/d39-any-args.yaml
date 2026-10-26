@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d39-any-args
+    languages: [lua]
+    severity: INFO
+    message: 'D39: metavariable ellipsis alone'
+    pattern: d39_g($...A)

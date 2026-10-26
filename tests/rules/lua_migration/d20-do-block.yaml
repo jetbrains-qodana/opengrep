@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d20-do-block
+    languages: [lua]
+    severity: INFO
+    message: 'D20: do ... end block'
+    patterns:
+      - pattern-inside: |
+          do
+            ...
+          end
+      - pattern: d20_in_do()

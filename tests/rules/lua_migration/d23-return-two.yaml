@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d23-return-two
+    languages: [lua]
+    severity: INFO
+    message: 'D23: return several values'
+    pattern: return $A, $B

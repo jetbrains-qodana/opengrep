@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d22-pairs
+    languages: [lua]
+    severity: INFO
+    message: 'D22: generic for with two variables'
+    pattern: |
+      for $K, $V in pairs($T) do
+        ...
+      end

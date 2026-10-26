@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d02-not-a-block-comment
+    languages: [lua]
+    severity: INFO
+    message: 'D02: ''-- [['' is a line comment, the code after it is not hidden'
+    pattern: d02_hidden()

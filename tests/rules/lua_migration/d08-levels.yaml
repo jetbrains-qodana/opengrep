@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d08-levels
+    languages: [lua]
+    severity: INFO
+    message: 'D08: long strings with levels'
+    pattern: d08_l("...")

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d30-parenthesized-callee
+    languages: [lua]
+    severity: INFO
+    message: 'D30: parenthesized callee and call'
+    pattern: d30_f($X)

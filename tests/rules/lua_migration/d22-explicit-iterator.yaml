@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d22-explicit-iterator
+    languages: [lua]
+    severity: INFO
+    message: 'D22: explicit iterator triplet is kept'
+    pattern: |
+      for $K, $V in next, $T do
+        ...
+      end

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d32-named-field
+    languages: [lua]
+    severity: INFO
+    message: 'D32: named field'
+    pattern: 'd32_t({ name = $V })'

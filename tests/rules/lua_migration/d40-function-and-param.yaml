@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d40-function-and-param
+    languages: [lua]
+    severity: INFO
+    message: 'D40: metavariables as function and parameter names'
+    pattern: |
+      function $F($P)
+        return $P
+      end

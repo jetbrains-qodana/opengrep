@@ -103,6 +103,8 @@ let (comment_syntaxes : (string * string option) list) =
   [
     ("#", None);
     ("//", None);
+    (* Lua, SQL, Haskell *)
+    ("--", None);
     ("<!--", Some "-->");
     ("(*", Some "*)");
     ("/*", Some "*/");
@@ -161,6 +163,7 @@ let () =
       test_remove "# foobar" (Some " foobar");
       test_remove "// foobar" (Some " foobar");
       test_remove "<!-- foobar -->" (Some " foobar ");
+      test_remove "-- foobar" (Some " foobar");
       ())
 
 (* returns the rest of the string too *)
@@ -197,7 +200,7 @@ let parse_kinds_and_engines_opt (s : string) :
 (*****************************************************************************)
 
 (* This does a few things:
- *  - check comments: #, //, ( *, <--
+ *  - check comments: #, //, --, ( *, <--
  *  - support pro/deep annotations
  *  - support possible deepok: or prook: following the ruleid: (to negate
  *    the ruleid when running a ProScan or DeepScan)

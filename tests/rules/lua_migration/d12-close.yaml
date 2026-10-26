@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d12-close
+    languages: [lua]
+    severity: INFO
+    message: 'D12: <close> attribute'
+    pattern: local $X <close> = $V

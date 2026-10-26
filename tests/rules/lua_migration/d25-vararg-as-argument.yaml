@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d25-vararg-as-argument
+    languages: [lua]
+    severity: INFO
+    message: 'D25: vararg as a regular argument in a target'
+    pattern: d25_g($A, $B)

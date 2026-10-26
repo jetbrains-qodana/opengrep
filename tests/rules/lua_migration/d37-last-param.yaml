@@ -1,0 +1,13 @@
+rules:
+  - id: lua-mig-d37-last-param
+    languages: [lua]
+    severity: INFO
+    message: 'D37: ellipsis before the last parameter'
+    patterns:
+      - pattern: |
+          function $F(..., $LAST)
+            ...
+          end
+      - metavariable-regex:
+          metavariable: $LAST
+          regex: ^cb$

@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d07-string-value
+    languages: [lua]
+    severity: INFO
+    message: 'D07: the string value does not include the quotes'
+    pattern: d07_eq("hello")

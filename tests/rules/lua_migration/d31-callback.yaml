@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d31-callback
+    languages: [lua]
+    severity: INFO
+    message: 'D31: anonymous function as an argument'
+    pattern: |
+      d31_on($E, function(...)
+        ...
+      end)

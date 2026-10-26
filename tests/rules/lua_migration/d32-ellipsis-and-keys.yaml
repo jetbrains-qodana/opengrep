@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d32-ellipsis-and-keys
+    languages: [lua]
+    severity: INFO
+    message: 'D32: ellipsis in a table, bracket keys, separators'
+    pattern: 'd32_e({..., debug = true, ...})'

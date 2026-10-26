@@ -1,3 +1,2 @@
-
 -- ERROR:
-2
+local x = 2

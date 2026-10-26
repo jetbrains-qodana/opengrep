@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d18-two-params
+    languages: [lua]
+    severity: INFO
+    message: 'D18: exact parameter lists'
+    pattern: |
+      function $F($A, $B)
+        ...
+      end

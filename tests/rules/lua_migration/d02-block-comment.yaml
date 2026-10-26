@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d02-block-comment
+    languages: [lua]
+    severity: INFO
+    message: 'D02: real block comments are ignored'
+    pattern: d02_target()

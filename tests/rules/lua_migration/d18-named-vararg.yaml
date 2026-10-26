@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d18-named-vararg
+    languages: [lua]
+    severity: INFO
+    message: 'D18: named vararg parameter (Lua 5.5)'
+    pattern: d18_use(args)

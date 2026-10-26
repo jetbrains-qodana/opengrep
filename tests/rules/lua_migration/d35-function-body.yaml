@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d35-function-body
+    languages: [lua]
+    severity: INFO
+    message: 'D35: statement ellipsis in a function body'
+    pattern: |
+      function $F(...)
+        ...
+        d35_danger()
+      end

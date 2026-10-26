@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d08-string-call
+    languages: [lua]
+    severity: INFO
+    message: 'D08: string call arguments'
+    pattern: d08_call("x")

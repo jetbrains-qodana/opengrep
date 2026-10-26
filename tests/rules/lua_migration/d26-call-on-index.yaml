@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d26-call-on-index
+    languages: [lua]
+    severity: INFO
+    message: 'D26: call of an indexed value'
+    pattern: $T[$I]($X)

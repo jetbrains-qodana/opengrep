@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d12-prefix-and-plain
+    languages: [lua]
+    severity: INFO
+    message: 'D12: prefix attribute (5.5) and plain patterns matching attributed declarations'
+    pattern: local $X = 2

@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d20-repeat
+    languages: [lua]
+    severity: INFO
+    message: 'D20: repeat ... until loop'
+    pattern: |
+      repeat
+        ...
+      until d20_done

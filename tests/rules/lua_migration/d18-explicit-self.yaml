@@ -1,0 +1,9 @@
+rules:
+  - id: lua-mig-d18-explicit-self
+    languages: [lua]
+    severity: INFO
+    message: 'D18: explicit self parameter'
+    pattern: |
+      function $T.$M(self, $X)
+        ...
+      end

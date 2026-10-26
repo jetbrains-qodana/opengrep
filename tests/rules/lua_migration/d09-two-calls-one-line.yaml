@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d09-two-calls-one-line
+    languages: [lua]
+    severity: INFO
+    message: 'D09: several call statements on one line'
+    pattern: $F(d09_x)

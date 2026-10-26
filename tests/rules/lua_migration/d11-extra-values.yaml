@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d11-extra-values
+    languages: [lua]
+    severity: INFO
+    message: 'D11: values without a name are kept'
+    pattern: d11_side_effect()
