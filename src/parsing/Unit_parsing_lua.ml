@@ -617,4 +617,55 @@ let tests =
               | [ _; G.Arg { e = G.N (G.Id (("...", _), _)); _ } ] -> ()
               | _ -> Alcotest.fail "expected the name ...")
           | _ -> Alcotest.fail "expected a local function");
+      t "the values of a local list are read before its names are declared"
+        (fun () ->
+          (* (name, position, sid) of the declared names and of the names read *)
+          let declared = ref [] and read = ref [] in
+          let add r ((s, tok) : G.ident) (info : G.id_info) =
+            let sid =
+              Option.map (fun (_, sid) -> G.SId.to_int sid) !(info.id_resolved)
+            in
+            r := (s, Tok.bytepos_of_tok tok, sid) :: !r
+          in
+          let visitor =
+            object
+              inherit [_] G.iter as super
+
+              method! visit_entity env ent =
+                (match ent.name with
+                | G.EN (G.Id (id, info)) -> add declared id info
+                | _ -> ());
+                super#visit_entity env ent
+
+              method! visit_pattern env pat =
+                (match pat with
+                | G.PatId (id, info) -> add declared id info
+                | _ -> ());
+                super#visit_pattern env pat
+
+              method! visit_expr env e =
+                (match e.e with
+                | G.N (G.Id (id, info)) -> add read id info
+                | _ -> ());
+                super#visit_expr env e
+            end
+          in
+          visitor#visit_program ()
+            (parse_program
+               "local x, y = 1, 2\nlocal x, y = y, x\nreturn x, y\n");
+          let sids r =
+            List.sort (fun (_, p1, _) (_, p2, _) -> Int.compare p1 p2) !r
+            |> List_.map (fun (s, _, sid) -> (s, sid))
+          in
+          match (sids declared, sids read) with
+          | ( [ ("x", x1); ("y", y1); ("x", x2); ("y", y2) ],
+              [ ("y", ry); ("x", rx); ("x", rx2); ("y", ry2) ] ) ->
+              let check name expected got =
+                Alcotest.(check (option int)) name expected got
+              in
+              check "y in the values is the outer y" y1 ry;
+              check "x in the values is the outer x" x1 rx;
+              check "the returned x is the new x" x2 rx2;
+              check "the returned y is the new y" y2 ry2
+          | _ -> Alcotest.fail "unexpected names");
     ]

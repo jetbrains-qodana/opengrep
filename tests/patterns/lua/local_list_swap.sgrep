@@ -1,0 +1,3 @@
+local $A, $B = 1, 2
+...
+local $C, $D = $B, $A
