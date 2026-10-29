@@ -446,9 +446,10 @@ and assign env ~g_expr lhs tok rhs_exp =
          &&
          match rhs_exp.e with
          | Composite (CTuple, (_, es, _)) ->
-             Int.equal (List.length es) (List.length lhss)
+             List.length es >= List.length lhss
          | _ -> false ->
-      (* Lua: a, b = x, y is tmp1 = x; tmp2 = y; a = tmp1; b = tmp2 *)
+      (* Lua: a, b = x, y is tmp1 = x; tmp2 = y; a = tmp1; b = tmp2; the
+       * surplus values are evaluated and dropped *)
       let es =
         match rhs_exp.e with
         | Composite (CTuple, (_, es, _)) -> es
@@ -467,7 +468,8 @@ and assign env ~g_expr lhs tok rhs_exp =
             fst
               (assign env ~g_expr lhs_i tok1
                  { e = Fetch tmp_lval; eorig = related_exp lhs_i }))
-          env (List.combine lhss tmps)
+          env
+          (List.combine lhss (List_.take (List.length lhss) tmps))
       in
       (* the value is the tmps: the targets are not read *)
       let tup_elems =
