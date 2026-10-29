@@ -654,10 +654,17 @@ let tests =
             (parse_program
                "local x, y = 1, 2\nlocal x, y = y, x\nreturn x, y\n");
           let sids r =
-            List.sort (fun (_, p1, _) (_, p2, _) -> Int.compare p1 p2) !r
+            List.sort (fun (_, p1, _) (_, p2, _) -> Int.compare p1 p2) r
             |> List_.map (fun (s, _, sid) -> (s, sid))
           in
-          match (sids declared, sids read) with
+          (* the targets of a tuple assignment are the declared names *)
+          let read =
+            List.filter
+              (fun (_, p, _) ->
+                not (List.exists (fun (_, p', _) -> Int.equal p p') !declared))
+              !read
+          in
+          match (sids !declared, sids read) with
           | ( [ ("x", x1); ("y", y1); ("x", x2); ("y", y2) ],
               [ ("y", ry); ("x", rx); ("x", rx2); ("y", ry2) ] ) ->
               let check name expected got =
