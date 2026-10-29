@@ -509,7 +509,6 @@ class ['self] propagate_basic_visitor lang stats =
       | ( { name = EPattern (PatTuple (_, pats, _)); attrs; _ },
           VarDef { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
         when Eval.is_lang env Lang.Lua
-             && H.has_keyword_attr Const attrs
              && Int.equal (List.length pats) (List.length values) ->
           List.iter2
             (fun pat (e : expr) ->
@@ -520,7 +519,9 @@ class ['self] propagate_basic_visitor lang stats =
                       id_resolved = { contents = Some (_kind, sid) };
                       id_flags;
                       _;
-                    } ) -> (
+                    } )
+                when H.has_keyword_attr Const attrs
+                     || IdFlags.is_final !id_flags -> (
                   id_flags := IdFlags.set_final !id_flags;
                   match (Eval.eval env e, e.e) with
                   | Some svalue, _ -> add_constant_env id (sid, svalue) env
