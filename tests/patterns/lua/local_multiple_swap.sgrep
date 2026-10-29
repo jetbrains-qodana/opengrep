@@ -1,0 +1,2 @@
+local $X = $V
+local $Y = $X

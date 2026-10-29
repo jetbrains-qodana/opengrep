@@ -1,0 +1,2 @@
+local $X, $Y = $CALL
+if $C then ... end

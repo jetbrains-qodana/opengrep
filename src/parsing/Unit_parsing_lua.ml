@@ -518,6 +518,74 @@ let tests =
                  (* the main chunk of Lua takes varargs *)
                  "a, b = ...";
                ]));
+      t "the names of a local list are marked with their position" (fun () ->
+          (* "position/names/values/last value" for each name of a list *)
+          let marks code =
+            parse_program code
+            |> List_.map (fun (st : G.stmt) ->
+                   match st.s with
+                   | G.DefStmt ({ name = G.EN (G.Id ((name, _), _)); attrs; _ }, _)
+                     ->
+                       let mark =
+                         attrs
+                         |> List_.filter_map (function
+                              | G.OtherAttribute
+                                  ( ("LuaLocalList", _),
+                                    [
+                                      G.Str (_, (i, _), _);
+                                      G.Str (_, (n, _), _);
+                                      G.Str (_, (m, _), _);
+                                      G.Str (_, (last, _), _);
+                                    ] ) ->
+                                  Some (Printf.sprintf " %s/%s/%s/%s" i n m last)
+                              | _ -> None)
+                       in
+                       name ^ String.concat "" mark
+                   | _ -> "?")
+            |> String.concat "; "
+          in
+          Alcotest.(check (list string))
+            "marks"
+            [
+              "a 1/2/1/expands; b 2/2/1/expands";
+              "x 1/2/2/single; y 2/2/2/single";
+              "a 1/3/2/expands; b 2/3/2/expands; c 3/3/2/expands";
+              "a 1/2/1/single; b 2/2/1/single";
+              "a 1/2/1/single; b 2/2/1/single";
+              "a 1/2/3/expands; b 2/2/3/expands; ?";
+              "f 1/2/1/expands; err 2/2/1/expands";
+              "a";
+              "a; b";
+            ]
+            (List.map marks
+               [
+                 "local a, b = f()";
+                 "local x, y = y, x";
+                 "local a, b, c = x, ...";
+                 "local a, b = (f())";
+                 "local a, b = 1";
+                 "local a, b = 1, 2, g()";
+                 "local f <close>, err = io.open(p)";
+                 "local a = f()";
+                 "local a, b";
+               ]));
+      t "a pattern of a local list has no mark" (fun () ->
+          match parse_pattern "local $A, $B = f()" with
+          | G.Ss stmts ->
+              stmts
+              |> List.iter (fun (st : G.stmt) ->
+                     match st.s with
+                     | G.DefStmt ({ attrs; _ }, _) ->
+                         if
+                           List.exists
+                             (function
+                               | G.OtherAttribute (("LuaLocalList", _), _) ->
+                                   true
+                               | _ -> false)
+                             attrs
+                         then Alcotest.fail "a mark in a pattern"
+                     | _ -> Alcotest.fail "expected declarations")
+          | _ -> Alcotest.fail "expected a sequence of declarations");
       t "the body of a function goes from its parameters to its end"
         (fun () ->
           let bodies = ref [] in
