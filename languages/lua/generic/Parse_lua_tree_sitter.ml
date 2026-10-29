@@ -682,7 +682,7 @@ and map_variable_declaration (env : env) (kind : G.attribute)
   (* local a, b = f() defines the pattern (a, b); the entity has the
    * attributes that all the names have, and a name with <const> or <close>
    * (a to-be-closed variable is also constant) is final *)
-  | (first :: _ :: _ as entities), Some values ->
+  | (first :: _ :: _ as entities), Some values -> (
       let same (a : G.attribute) (b : G.attribute) =
         match (a, b) with
         | G.KeywordAttr (k1, _), G.KeywordAttr (k2, _) -> k1 =*= k2
@@ -709,21 +709,28 @@ and map_variable_declaration (env : env) (kind : G.attribute)
                        true
                    | _ -> false)
             then info.id_flags := IdFlags.set_final !(info.id_flags);
-            G.PatId (id, info)
-        | _ -> raise Impossible
+            Some (G.PatId (id, info))
+        | _ -> None
       in
-      let pat = G.PatTuple (Tok.unsafe_fake_bracket (List_.map name entities)) in
-      let vinit =
-        match values_of_names (List.length entities) values with
-        | [ v ] -> v
-        | vs -> tuple vs
-      in
-      let ent = { G.name = G.EPattern pat; attrs; tparams = None } in
-      [
-        G.DefStmt
-          (ent, G.VarDef { G.vinit = Some vinit; vtype = None; vtok = G.no_sc })
-        |> G.s;
-      ]
+      let ids = List_.map name entities in
+      (* the names of a list are identifiers; otherwise one definition per name *)
+      match List.filter_map Fun.id ids with
+      | ids' when List.length ids' < List.length ids -> mk_vars entities values
+      | ids ->
+          let pat = G.PatTuple (Tok.unsafe_fake_bracket ids) in
+          let vinit =
+            match values_of_names (List.length entities) values with
+            | [ v ] -> v
+            | vs -> tuple vs
+          in
+          let ent = { G.name = G.EPattern pat; attrs; tparams = None } in
+          [
+            G.DefStmt
+              ( ent,
+                G.VarDef { G.vinit = Some vinit; vtype = None; vtok = G.no_sc }
+              )
+            |> G.s;
+          ])
   | _, values -> mk_vars entities (Option.value values ~default:[])
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
