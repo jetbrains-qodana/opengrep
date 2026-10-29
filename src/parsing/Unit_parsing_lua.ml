@@ -762,4 +762,48 @@ let tests =
           Alcotest.(check (list (pair string bool)))
             "names" [ ("print", false); ("pairs", false); ("print2", true) ]
             (reads "local print2, pairs2 = print, pairs\nprint2(1)\n"));
+      t "a local list with an attribute of only some names keeps one \
+         definition per name"
+        (fun () ->
+          let attrs_of (st : G.stmt) =
+            match st.s with
+            | G.DefStmt ({ name = G.EN (G.Id ((s, _), _)); attrs; _ }, G.VarDef v)
+              ->
+                ( s,
+                  List_.map
+                    (function
+                      | G.KeywordAttr (G.Static, _) -> "local"
+                      | G.KeywordAttr (G.Const, _) -> "const"
+                      | G.OtherAttribute ((s, _), _) -> s
+                      | _ -> "?")
+                    attrs,
+                  Option.is_some v.vinit )
+            | _ -> ("?", [], false)
+          in
+          let check code expected =
+            Alcotest.(check (list (triple string (list string) bool)))
+              code expected
+              (List_.map attrs_of (parse_program code))
+          in
+          check "local f <close>, err = io.open(p)"
+            [ ("f", [ "local"; "close" ], true); ("err", [ "local" ], false) ];
+          check "local a <const>, b = 42, 0"
+            [ ("a", [ "local"; "const" ], true); ("b", [ "local" ], true) ]);
+      t "a global list keeps the global attribute" (fun () ->
+          match parse_program "global g1, g2 = 1, 2" with
+          | [
+           {
+             s =
+               G.DefStmt
+                 ( {
+                     name = G.EPattern (G.PatTuple _);
+                     attrs = [ G.OtherAttribute (("global", _), []) ];
+                     _;
+                   },
+                   G.VarDef { vinit = Some _; _ } );
+             _;
+           };
+          ] ->
+              ()
+          | _ -> Alcotest.fail "expected global (g1, g2) = (1, 2)");
     ]
