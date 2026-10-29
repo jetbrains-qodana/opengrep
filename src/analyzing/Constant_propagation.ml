@@ -531,6 +531,10 @@ class ['self] propagate_basic_visitor lang stats =
                   match (Eval.eval env e, e.e) with
                   | Some svalue, _ -> add_constant_env id (sid, svalue) env
                   | None, L literal -> add_constant_env id (sid, Lit literal) env
+                  | None, _
+                    when Dataflow_svalue.is_symbolic_expr e
+                         && no_cycles_in_sym_prop sid e ->
+                      add_constant_env id (sid, Sym e) env
                   | None, _ -> ())
               | _ -> ())
             (List_.take n pats) (List_.take n values);
