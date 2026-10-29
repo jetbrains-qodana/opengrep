@@ -1,2 +1,3 @@
-local $X <const> = $B
-local $Y = $X
+local $A, $B = 1, 2
+...
+local $C <const>, $D = $B, $A

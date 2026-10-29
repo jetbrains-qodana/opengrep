@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d16-local-list-close-second-value
+    languages: [lua]
+    severity: INFO
+    message: 'D16: the 2nd name of a list where only the 1st has <close> gets the 2nd value'
+    mode: taint
+    pattern-sources:
+      - pattern: source()
+    pattern-sinks:
+      - pattern: sink(...)

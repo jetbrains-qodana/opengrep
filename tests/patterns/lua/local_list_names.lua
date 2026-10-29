@@ -1,6 +1,6 @@
 -- ERROR: match
 local a, b = f()
--- ok: only fd has <close>, so the list is one definition per name
+-- ERROR: match
 local fd <close>, err = io.open(p)
 -- ok: three names
 local c, d, e = x, f()
