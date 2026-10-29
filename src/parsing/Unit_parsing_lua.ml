@@ -668,6 +668,9 @@ let tests =
           | ( [ ("x", x1); ("y", y1); ("x", x2); ("y", y2) ],
               [ ("y", ry); ("x", rx); ("x", rx2); ("y", ry2) ] ) ->
               let check name expected got =
+                Alcotest.(check bool)
+                  (name ^ ": both resolved") true
+                  (Option.is_some expected && Option.is_some got);
                 Alcotest.(check (option int)) name expected got
               in
               check "y in the values is the outer y" y1 ry;
@@ -805,4 +808,26 @@ let tests =
           ] ->
               ()
           | _ -> Alcotest.fail "expected global (g1, g2) = (1, 2)");
+      t "a global <const> list is one definition with both attributes"
+        (fun () ->
+          match parse_program "global <const> g1, g2 = 1, 2" with
+          | [
+           {
+             s =
+               G.DefStmt
+                 ( {
+                     name = G.EPattern (G.PatTuple _);
+                     attrs =
+                       [
+                         G.OtherAttribute (("global", _), []);
+                         G.KeywordAttr (G.Const, _);
+                       ];
+                     _;
+                   },
+                   G.VarDef { vinit = Some _; _ } );
+             _;
+           };
+          ] ->
+              ()
+          | _ -> Alcotest.fail "expected global <const> (g1, g2) = (1, 2)");
     ]

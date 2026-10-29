@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d19-local-list-whole-value
+    languages: [lua]
+    severity: INFO
+    message: 'D19: $V of local $A, $B = $V is the whole list of values'
+    patterns:
+      - pattern: local $A, $B = $V
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^1,\s*2$

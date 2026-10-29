@@ -1,0 +1,15 @@
+rules:
+  - id: lua-mig-d19-local-list-evaluation-order
+    languages: [lua]
+    severity: INFO
+    message: 'D19: the values of a local list are evaluated in order'
+    mode: taint
+    pattern-sources:
+      - pattern: source()
+    pattern-sanitizers:
+      - by-side-effect: true
+        patterns:
+          - pattern: sanitize($X)
+          - focus-metavariable: $X
+    pattern-sinks:
+      - pattern: sink(...)
