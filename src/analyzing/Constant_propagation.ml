@@ -505,6 +505,30 @@ class ['self] propagate_basic_visitor lang stats =
                 add_constant_env id (sid, Sym e) env
             | None, _ -> ());
           super#visit_definition (env, ctx) x
+      (* Lua: local a <const>, b <const> = x, y *)
+      | ( { name = EPattern (PatTuple (_, pats, _)); attrs; _ },
+          VarDef { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
+        when Eval.is_lang env Lang.Lua
+             && H.has_keyword_attr Const attrs
+             && Int.equal (List.length pats) (List.length values) ->
+          List.iter2
+            (fun pat (e : expr) ->
+              match pat with
+              | PatId
+                  ( id,
+                    {
+                      id_resolved = { contents = Some (_kind, sid) };
+                      id_flags;
+                      _;
+                    } ) -> (
+                  id_flags := IdFlags.set_final !id_flags;
+                  match (Eval.eval env e, e.e) with
+                  | Some svalue, _ -> add_constant_env id (sid, svalue) env
+                  | None, L literal -> add_constant_env id (sid, Lit literal) env
+                  | None, _ -> ())
+              | _ -> ())
+            pats values;
+          super#visit_definition (env, ctx) x
       | entity, ClassDef c ->
           let x' = entity, ClassDef (H.reorder_fields_in_class_definition c) in
           !hook_propagate_basic_visitor

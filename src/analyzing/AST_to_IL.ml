@@ -441,6 +441,44 @@ and assign env ~g_expr lhs tok rhs_exp =
               (mk_i (Assign (fixme_lval, rhs_exp)) eorig)
           in
           (env, fixme_exp kind any_generic (related_exp g_expr)))
+  | G.Container (G.Tuple, (tok1, lhss, tok2))
+    when env.lang =*= Lang.Lua
+         &&
+         match rhs_exp.e with
+         | Composite (CTuple, (_, es, _)) ->
+             Int.equal (List.length es) (List.length lhss)
+         | _ -> false ->
+      (* Lua: a, b = x, y is tmp1 = x; tmp2 = y; a = tmp1; b = tmp2 *)
+      let es =
+        match rhs_exp.e with
+        | Composite (CTuple, (_, es, _)) -> es
+        | _ -> []
+      in
+      let env, tmps =
+        List.fold_left_map
+          (fun env e ->
+            let env, _tmp, tmp_lval = mk_aux_var ~force:true env tok e in
+            (env, tmp_lval))
+          env es
+      in
+      let env =
+        List.fold_left
+          (fun env (lhs_i, tmp_lval) ->
+            fst
+              (assign env ~g_expr lhs_i tok1
+                 { e = Fetch tmp_lval; eorig = related_exp lhs_i }))
+          env (List.combine lhss tmps)
+      in
+      (* the value is the tmps: the targets are not read *)
+      let tup_elems =
+        List_.map (fun tmp_lval -> mk_e (Fetch tmp_lval) NoOrig) tmps
+      in
+      ( env,
+        mk_e
+          (Composite
+             ( composite_of_container ~g_expr G.Tuple env.stmts,
+               (tok1, tup_elems, tok2) ))
+          (related_exp lhs) )
   | G.Container (((G.Tuple | G.List | G.Array) as ckind), (tok1, lhss, tok2)) ->
       (* TODO: handle cases like [a, b, ...rest] = e *)
       (* E1, ..., En = RHS *)
@@ -1766,6 +1804,20 @@ and stmt_aux env st =
         mk_class_construction env obj' new_exp ty cons_id_info args
       in
       (env, new_stmts)
+  | G.DefStmt
+      ( { name = G.EPattern (G.PatTuple (l, pats, r)); _ },
+        G.VarDef { G.vinit = Some e; vtype = None; vtok = _ } )
+    when env.lang =*= Lang.Lua
+         && List.for_all (function G.PatId _ -> true | _ -> false) pats ->
+      (* Lua: local a, b = e is (a, b) = e *)
+      let names =
+        pats
+        |> List_.map (function
+             | G.PatId (id, id_info) -> G.N (G.Id (id, id_info)) |> G.e
+             | _ -> raise Impossible)
+      in
+      let targets = G.Container (G.Tuple, (l, names, r)) |> G.e in
+      stmt env (G.exprstmt (G.Assign (targets, G.fake "=", e) |> G.e))
   | G.DefStmt (ent, G.VarDef { G.vinit = Some e; vtype = opt_ty; vtok = _ }) ->
       let env, ss1, e' = expr_with_pre_stmts env e in
       let env, lv = lval_of_ent env ent in
