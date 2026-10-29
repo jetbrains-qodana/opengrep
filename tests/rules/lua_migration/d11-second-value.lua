@@ -1,4 +1,5 @@
--- ruleid: lua-mig-d11-second-value
+-- a list of several names is a tuple assignment
+-- ok: lua-mig-d11-second-value
 local a, b = 1, 2
 -- ok: lua-mig-d11-second-value
 local c = 1

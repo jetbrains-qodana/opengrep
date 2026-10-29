@@ -668,15 +668,26 @@ and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
 (* local a, b [= x, y] *)
 and map_variable_declaration (env : env) (kind : G.attribute)
     (x : CST.anon_choice_att_name_list_26e8983) : G.stmt list =
-  let names, values =
+  let names, assignment =
     match x with
-    | `Att_name_list x -> (x, [])
+    | `Att_name_list x -> (x, None)
     | `Var_assign (v1, v2, v3) ->
-        let _v2 = token env v2 (* "=" *) in
-        (v1, map_expression_list env v3)
+        let equal = token env v2 (* "=" *) in
+        (v1, Some (equal, map_expression_list env v3))
   in
   let entities = map_att_name_list env kind names in
-  mk_vars entities values
+  match (entities, assignment) with
+  (* local a, b = f() is local a; local b; (a, b) = f() *)
+  | _ :: _ :: _, Some (equal, values) ->
+      let target (ent : G.entity) =
+        match ent.name with
+        | G.EN (G.Id (id, _)) -> G.N (G.Id (id, G.empty_id_info ())) |> G.e
+        | _ -> raise Impossible
+      in
+      mk_vars entities []
+      @ [ assign (List_.map target entities) equal values ]
+  | _, Some (_, values) -> mk_vars entities values
+  | _, None -> mk_vars entities []
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
 and map_att_name_list (env : env) (kind : G.attribute)

@@ -1,4 +1,5 @@
--- ruleid: lua-mig-d12-prefix-and-plain
+-- a list of several names is a tuple assignment
+-- ok: lua-mig-d12-prefix-and-plain
 local <const> a, b = 1, 2
 -- ruleid: lua-mig-d12-prefix-and-plain
 local c <const> = 2
