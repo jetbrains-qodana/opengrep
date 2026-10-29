@@ -509,7 +509,8 @@ class ['self] propagate_basic_visitor lang stats =
        * with fewer values than names the last one expands, so only the
        * names before it have a known value *)
       | ( { name = EPattern (PatTuple (_, pats, _)); attrs; _ },
-          VarDef { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
+          VarDef
+            { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
         when Eval.is_lang env Lang.Lua ->
           let n =
             if List.length values >= List.length pats then List.length pats
@@ -530,7 +531,8 @@ class ['self] propagate_basic_visitor lang stats =
                   id_flags := IdFlags.set_final !id_flags;
                   match (Eval.eval env e, e.e) with
                   | Some svalue, _ -> add_constant_env id (sid, svalue) env
-                  | None, L literal -> add_constant_env id (sid, Lit literal) env
+                  | None, L literal ->
+                      add_constant_env id (sid, Lit literal) env
                   | None, _
                     when Dataflow_svalue.is_symbolic_expr e
                          && no_cycles_in_sym_prop sid e ->

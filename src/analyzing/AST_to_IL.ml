@@ -1804,7 +1804,11 @@ and stmt_aux env st =
       ( { name = G.EPattern (G.PatTuple (l, pats, r)); _ },
         G.VarDef { G.vinit = Some e; vtype = None; vtok = _ } )
     when env.lang =*= Lang.Lua
-         && List.for_all (function G.PatId _ -> true | _ -> false) pats ->
+         && List.for_all
+              (function
+                | G.PatId _ -> true
+                | _ -> false)
+              pats ->
       (* Lua: local a, b = e is (a, b) = e *)
       let names =
         pats

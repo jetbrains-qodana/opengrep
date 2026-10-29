@@ -651,8 +651,7 @@ let tests =
             end
           in
           visitor#visit_program ()
-            (parse_program
-               "local x, y = 1, 2\nlocal x, y = y, x\nreturn x, y\n");
+            (parse_program "local x, y = 1, 2\nlocal x, y = y, x\nreturn x, y\n");
           let sids r =
             List.sort (fun (_, p1, _) (_, p2, _) -> Int.compare p1 p2) r
             |> List_.map (fun (s, _, sid) -> (s, sid))
@@ -688,9 +687,9 @@ let tests =
                      name =
                        G.EPattern
                          (G.PatTuple
-                           ( _,
-                             [ G.PatId (("a", _), _); G.PatId (("b", _), _) ],
-                             _ ));
+                            ( _,
+                              [ G.PatId (("a", _), _); G.PatId (("b", _), _) ],
+                              _ ));
                      attrs = [ G.KeywordAttr (G.Static, _) ];
                      _;
                    },
@@ -698,7 +697,10 @@ let tests =
                      {
                        vinit =
                          Some
-                           { e = G.Call ({ e = G.N (G.Id (("f", _), _)); _ }, _); _ };
+                           {
+                             e = G.Call ({ e = G.N (G.Id (("f", _), _)); _ }, _);
+                             _;
+                           };
                        _;
                      } );
              _;
@@ -745,7 +747,9 @@ let tests =
                   (match e.e with
                   | G.N (G.Id ((s, tok), info)) ->
                       reads :=
-                        (s, Tok.bytepos_of_tok tok, Option.is_some !(info.id_resolved))
+                        ( s,
+                          Tok.bytepos_of_tok tok,
+                          Option.is_some !(info.id_resolved) )
                         :: !reads
                   | _ -> ());
                   super#visit_expr env e
@@ -760,10 +764,12 @@ let tests =
             |> List_.map (fun (s, _, r) -> (s, r))
           in
           Alcotest.(check (list (pair string bool)))
-            "names" [ ("print", false); ("pairs", false); ("print", true) ]
+            "names"
+            [ ("print", false); ("pairs", false); ("print", true) ]
             (reads "local print, pairs = print, pairs\nprint(1)\n");
           Alcotest.(check (list (pair string bool)))
-            "names" [ ("print", false); ("pairs", false); ("print2", true) ]
+            "names"
+            [ ("print", false); ("pairs", false); ("print2", true) ]
             (reads "local print2, pairs2 = print, pairs\nprint2(1)\n"));
       t "a name of a local list with <const> or <close> is final" (fun () ->
           let check code =
@@ -775,7 +781,8 @@ let tests =
                    ( {
                        name =
                          G.EPattern
-                           (G.PatTuple (_, [ G.PatId (_, i1); G.PatId (_, i2) ], _));
+                           (G.PatTuple
+                              (_, [ G.PatId (_, i1); G.PatId (_, i2) ], _));
                        attrs = [ G.KeywordAttr (G.Static, _) ];
                        _;
                      },
