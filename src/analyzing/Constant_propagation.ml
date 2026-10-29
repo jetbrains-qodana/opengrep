@@ -551,6 +551,37 @@ class ['self] propagate_basic_visitor lang stats =
           let var = (prefix ^ "." ^ str, terraform_sid) in
           let/ svalue = Hashtbl.find_opt env.constants var in
           Dataflow_svalue.set_svalue_ref id_info svalue
+      (* Lua: local a <const>, b = x, y is the declarations of a and b,
+       * then (a, b) = (x, y) *)
+      | Assign
+          ( { e = Container (Tuple, (_, lhss, _)); _ },
+            _,
+            { e = Container (Tuple, (_, rhss, _)); _ } )
+        when Eval.is_lang env Lang.Lua
+             && Int.equal (List.length lhss) (List.length rhss) ->
+          List.iter2
+            (fun (lhs : expr) (rexp : expr) ->
+              match lhs.e with
+              | N
+                  (Id
+                    ( id,
+                      {
+                        id_resolved = { contents = Some (_kind, sid) };
+                        id_flags;
+                        _;
+                      } )) -> (
+                  match Hashtbl.find_opt env.attributes (fst id, sid) with
+                  | Some attrs when H.has_keyword_attr Const attrs -> (
+                      id_flags := IdFlags.set_final !id_flags;
+                      match (Eval.eval env rexp, rexp.e) with
+                      | Some svalue, _ -> add_constant_env id (sid, svalue) env
+                      | None, L literal ->
+                          add_constant_env id (sid, Lit literal) env
+                      | None, _ -> ())
+                  | _ -> ())
+              | _ -> ())
+            lhss rhss;
+          super#visit_expr (env, ctx) x
       | Assign
           (* Assign that is really a hidden VarDef (e.g., in Python) *)
           ( {
