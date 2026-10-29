@@ -505,11 +505,16 @@ class ['self] propagate_basic_visitor lang stats =
                 add_constant_env id (sid, Sym e) env
             | None, _ -> ());
           super#visit_definition (env, ctx) x
-      (* Lua: local a <const>, b <const> = x, y *)
+      (* Lua: local a <const>, b <const> = x, y. Surplus values are dropped;
+       * with fewer values than names the last one expands, so only the
+       * names before it have a known value *)
       | ( { name = EPattern (PatTuple (_, pats, _)); attrs; _ },
           VarDef { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
-        when Eval.is_lang env Lang.Lua
-             && Int.equal (List.length pats) (List.length values) ->
+        when Eval.is_lang env Lang.Lua ->
+          let n =
+            if List.length values >= List.length pats then List.length pats
+            else List.length values - 1
+          in
           List.iter2
             (fun pat (e : expr) ->
               match pat with
@@ -528,7 +533,7 @@ class ['self] propagate_basic_visitor lang stats =
                   | None, L literal -> add_constant_env id (sid, Lit literal) env
                   | None, _ -> ())
               | _ -> ())
-            pats values;
+            (List_.take n pats) (List_.take n values);
           super#visit_definition (env, ctx) x
       | entity, ClassDef c ->
           let x' = entity, ClassDef (H.reorder_fields_in_class_definition c) in
