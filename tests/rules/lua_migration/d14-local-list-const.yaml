@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d14-local-list-const
+    languages: [lua]
+    severity: INFO
+    message: 'D14: a <const> name of a local list is a constant in functions'
+    pattern: sink(42)
