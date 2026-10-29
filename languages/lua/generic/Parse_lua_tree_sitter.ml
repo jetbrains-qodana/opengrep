@@ -668,15 +668,57 @@ and map_declaration (env : env) (x : CST.declaration) : G.stmt list =
 (* local a, b [= x, y] *)
 and map_variable_declaration (env : env) (kind : G.attribute)
     (x : CST.anon_choice_att_name_list_26e8983) : G.stmt list =
-  let names, values =
+  let names, values, mark =
     match x with
-    | `Att_name_list x -> (x, [])
+    | `Att_name_list x -> (x, [], None)
     | `Var_assign (v1, v2, v3) ->
-        let _v2 = token env v2 (* "=" *) in
-        (v1, map_expression_list env v3)
+        let equal = token env v2 (* "=" *) in
+        let exprs = sep_list v3 in
+        let mark =
+          match (env.extra, List.rev exprs) with
+          | Target, last :: _ -> Some (equal, List.length exprs, expands last)
+          | _ -> None
+        in
+        (v1, List_.map (map_expression env) exprs, mark)
   in
   let entities = map_att_name_list env kind names in
+  let entities =
+    match (mark, entities) with
+    | Some (equal, nvalues, expands), _ :: _ :: _ ->
+        mark_local_list equal (List.length entities) nvalues expands entities
+    | _ -> entities
+  in
   mk_vars entities values
+
+(* a call or ... gives all its values, (f()) and any other expression one *)
+and expands (x : CST.expression) : bool =
+  match x with
+  | `Choice_nil (`Func_call _ | `Vararg_exp _) -> true
+  | _ -> false
+
+(* In a program, each name of local a, b = f() is marked with
+ * LuaLocalList [position; number of names; number of values; last value]
+ * (1/2/1/expands and 2/2/1/expands), the last value is "expands" for a
+ * call or ... and "single" otherwise. The declarations are still one per
+ * name, so the mark tells the translators to evaluate all the values first
+ * and to give b the 2nd value of f(). Patterns have no mark: the attributes
+ * of a pattern are a subset of the attributes of a program. *)
+and mark_local_list equal nnames nvalues expands entities =
+  let tok = Tok.fake_tok equal "LuaLocalList" in
+  let str s = G.Str (Tok.unsafe_fake_bracket (s, tok)) in
+  entities
+  |> List.mapi (fun i (ent : G.entity) ->
+         let mark =
+           G.OtherAttribute
+             ( ("LuaLocalList", tok),
+               [
+                 str (string_of_int (i + 1));
+                 str (string_of_int nnames);
+                 str (string_of_int nvalues);
+                 str (if expands then "expands" else "single");
+               ] )
+         in
+         { ent with attrs = ent.attrs @ [ mark ] })
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
 and map_att_name_list (env : env) (kind : G.attribute)
