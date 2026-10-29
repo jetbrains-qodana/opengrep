@@ -679,9 +679,11 @@ and map_variable_declaration (env : env) (kind : G.attribute)
   in
   let entities = map_att_name_list env kind names in
   match (entities, values) with
-  (* local a, b = f() defines the pattern (a, b); the entity has the
-   * attributes that all the names have *)
-  | (first :: _ :: _ as entities), Some values ->
+  (* local a, b = f() defines the pattern (a, b), whose entity has the
+   * attributes of the names; a pattern id has no attributes, so a list
+   * where only some names have an attribute, local f <close>, err = ...,
+   * keeps one definition per name *)
+  | (first :: _ :: _ as entities), Some values -> (
       let name (ent : G.entity) =
         match ent.name with
         | G.EN (G.Id (id, _)) -> G.PatId (id, G.empty_id_info ())
@@ -694,25 +696,30 @@ and map_variable_declaration (env : env) (kind : G.attribute)
             String.equal s1 s2
         | _ -> false
       in
-      let attrs =
-        first.attrs
-        |> List.filter (fun a ->
-               List.for_all
-                 (fun (ent : G.entity) -> List.exists (same a) ent.attrs)
-                 entities)
+      let shared a =
+        List.for_all
+          (fun (ent : G.entity) -> List.exists (same a) ent.attrs)
+          entities
       in
+      if
+        not
+          (List.for_all
+             (fun (ent : G.entity) -> List.for_all shared ent.attrs)
+             entities)
+      then mk_vars entities values
+      else
       let pat = G.PatTuple (Tok.unsafe_fake_bracket (List_.map name entities)) in
       let vinit =
         match values_of_names (List.length entities) values with
         | [ v ] -> v
         | vs -> tuple vs
       in
-      let ent = { G.name = G.EPattern pat; attrs; tparams = None } in
+      let ent = { G.name = G.EPattern pat; attrs = first.attrs; tparams = None } in
       [
         G.DefStmt
           (ent, G.VarDef { G.vinit = Some vinit; vtype = None; vtok = G.no_sc })
         |> G.s;
-      ]
+      ])
   | _, values -> mk_vars entities (Option.value values ~default:[])
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
