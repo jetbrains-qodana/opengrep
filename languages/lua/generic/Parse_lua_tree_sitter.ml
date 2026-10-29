@@ -86,15 +86,12 @@ let mk_vars (xs : G.entity list) (ys : G.expr list) : G.stmt list =
   in
   aux xs ys
 
-(* several targets or values are assigned as tuples, as in Python:
- * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
- * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
- * first value and not a tuple *)
-let assign (targets : G.expr list) (equal : Tok.t) (values : G.expr list) :
-    G.stmt =
-  let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e in
-  (* a call or ... gives all its values, as do $X and ... in a pattern;
-   * any other expression gives one value *)
+let tuple xs = G.Container (G.Tuple, Tok.unsafe_fake_bracket xs) |> G.e
+
+(* the values given to n names: targets left without a value get nil,
+ * a, b = x is (a, b) = (x, nil), unless the last value is a call or ...,
+ * which gives all its values, as do $X and ... in a pattern *)
+let values_of_names (n : int) (values : G.expr list) : G.expr list =
   let multiple_values (e : G.expr) =
     match e.e with
     | G.Call ({ e = G.IdSpecial (G.Op _, _); _ }, _) -> false
@@ -105,18 +102,23 @@ let assign (targets : G.expr list) (equal : Tok.t) (values : G.expr list) :
     | G.N (G.Id ((s, _), _)) -> G.is_metavar_name s
     | _ -> false
   in
-  (* targets left without a value get nil: a, b = x is (a, b) = (x, nil) *)
-  let values =
-    let missing = List.length targets - List.length values in
-    let last_gives_all =
-      match List.rev values with
-      | last :: _ -> multiple_values last
-      | [] -> false
-    in
-    if missing > 0 && not last_gives_all then
-      values @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
-    else values
+  let missing = n - List.length values in
+  let last_gives_all =
+    match List.rev values with
+    | last :: _ -> multiple_values last
+    | [] -> false
   in
+  if missing > 0 && not last_gives_all then
+    values @ List.init missing (fun _ -> G.L (G.Null (G.fake "nil")) |> G.e)
+  else values
+
+(* several targets or values are assigned as tuples, as in Python:
+ * x, y = y, x is (x, y) = (y, x) and x, y = f() is (x, y) = f().
+ * x = a, b keeps the targets a tuple, (x) = (a, b), since x gets the
+ * first value and not a tuple *)
+let assign (targets : G.expr list) (equal : Tok.t) (values : G.expr list) :
+    G.stmt =
+  let values = values_of_names (List.length targets) values in
   let lhs, rhs =
     match (targets, values) with
     | [ x ], [ v ] -> (x, v)
@@ -670,13 +672,66 @@ and map_variable_declaration (env : env) (kind : G.attribute)
     (x : CST.anon_choice_att_name_list_26e8983) : G.stmt list =
   let names, values =
     match x with
-    | `Att_name_list x -> (x, [])
+    | `Att_name_list x -> (x, None)
     | `Var_assign (v1, v2, v3) ->
         let _v2 = token env v2 (* "=" *) in
-        (v1, map_expression_list env v3)
+        (v1, Some (map_expression_list env v3))
   in
   let entities = map_att_name_list env kind names in
-  mk_vars entities values
+  match (entities, values) with
+  (* local a, b = f() defines the pattern (a, b); the entity has the
+   * attributes that all the names have, and a name with <const> or <close>
+   * (a to-be-closed variable is also constant) is final *)
+  | (first :: _ :: _ as entities), Some values -> (
+      let same (a : G.attribute) (b : G.attribute) =
+        match (a, b) with
+        | G.KeywordAttr (k1, _), G.KeywordAttr (k2, _) -> k1 =*= k2
+        | G.OtherAttribute ((s1, _), _), G.OtherAttribute ((s2, _), _) ->
+            String.equal s1 s2
+        | _ -> false
+      in
+      let attrs =
+        first.attrs
+        |> List.filter (fun a ->
+               List.for_all
+                 (fun (ent : G.entity) -> List.exists (same a) ent.attrs)
+                 entities)
+      in
+      let name (ent : G.entity) =
+        match ent.name with
+        | G.EN (G.Id (id, _)) ->
+            let info = G.empty_id_info () in
+            if
+              ent.attrs
+              |> List.exists (function
+                   | G.KeywordAttr (G.Const, _)
+                   | G.OtherAttribute (("close", _), _) ->
+                       true
+                   | _ -> false)
+            then info.id_flags := IdFlags.set_final !(info.id_flags);
+            Some (G.PatId (id, info))
+        | _ -> None
+      in
+      let ids = List_.map name entities in
+      (* the names of a list are identifiers; otherwise one definition per name *)
+      match List.filter_map Fun.id ids with
+      | ids' when List.length ids' < List.length ids -> mk_vars entities values
+      | ids ->
+          let pat = G.PatTuple (Tok.unsafe_fake_bracket ids) in
+          let vinit =
+            match values_of_names (List.length entities) values with
+            | [ v ] -> v
+            | vs -> tuple vs
+          in
+          let ent = { G.name = G.EPattern pat; attrs; tparams = None } in
+          [
+            G.DefStmt
+              ( ent,
+                G.VarDef { G.vinit = Some vinit; vtype = None; vtok = G.no_sc }
+              )
+            |> G.s;
+          ])
+  | _, values -> mk_vars entities (Option.value values ~default:[])
 
 (* attnamelist ::= [attrib] Name [attrib] {',' Name [attrib]} *)
 and map_att_name_list (env : env) (kind : G.attribute)

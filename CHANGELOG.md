@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+* Lua: a `local` (or Lua 5.5 `global`) list of several names with values, `local a, b = ...`, is now one destructuring
+  definition of the tuple pattern `(a, b)`: all the values are kept (missing ones are nil, a last call or `...` gives the
+  remaining names), and the values are read before the names are declared, as in Lua (`local x, y = y, x`).
+* Lua patterns: a one-name pattern `local $X = ...` no longer matches a name of a multi-name list; write the multi-name
+  form, e.g. `local $X, $Y = ...` (`$V` in `local $A, $B = $V` is the whole list of values).
+* Lua: the `<const>`/`<close>` of only some names of a list are kept as the `final` flag of those names; attributes shared
+  by all the names are on the definition. In a pattern, a name with `<const>` or `<close>` matches only a final name
+  (`local $FD <close>, $E = $OPEN(...)`); `final` does not distinguish `<const>` from `<close>`, and a name without an
+  attribute matches attributed names as before.
+* Lua: in `local a, b = f()` the call result is the value of the whole pattern, so every name gets the call result.
+
 ## [1.11.3](https://github.com/opengrep/opengrep/releases/tag/v1.11.3) - 30-10-2025
 
 ### Bug fixes

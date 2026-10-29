@@ -1,0 +1,1 @@
+local $FD <close>, $E = $OPEN(...)

@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d14-local-list-taint-outer-value
+    languages: [lua]
+    severity: INFO
+    message: 'D14: the values of a local list are read with the outer names'
+    mode: taint
+    pattern-sources:
+      - pattern: source()
+    pattern-sinks:
+      - pattern: sink(...)
