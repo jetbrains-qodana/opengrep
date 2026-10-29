@@ -515,6 +515,49 @@ let assign_implicitly_declares lang =
   lang =*= Lang.Python || lang =*= Lang.Ruby || lang =*= Lang.Php
   || Lang.is_js lang
 
+(* Lua: local a, b = e is the declarations of a and b followed by
+ * (a, b) = e, whose targets are the tokens of the declared names (see
+ * Parse_lua_tree_sitter). Returns the declarations, the targets, the value
+ * and the rest of the statements. *)
+let lua_local_list (stmts : stmt list) :
+    (stmt list * expr * expr * stmt list) option =
+  let rec decls acc = function
+    | ({ s = DefStmt ({ name = EN (Id (id, _)); _ }, VarDef { vinit = None; _ }); _ }
+       as st)
+      :: rest ->
+        decls ((id, st) :: acc) rest
+    | {
+        s =
+          ExprStmt
+            ( {
+                e =
+                  Assign
+                    (({ e = Container (Tuple, (_, targets, _)); _ } as lhs), _, rhs);
+                _;
+              },
+              _ );
+        _;
+      }
+      :: rest
+      when List.length acc >= 2 ->
+        let names = List.rev acc in
+        let same_token (((s1, t1), _) : ident * stmt) (target : expr) =
+          match target.e with
+          | N (Id ((s2, t2), _)) ->
+              String.equal s1 s2
+              && (not (Tok.is_fake t1))
+              && Int.equal (Tok.compare_pos t1 t2) 0
+          | _ -> false
+        in
+        if
+          Int.equal (List.length names) (List.length targets)
+          && List.for_all2 same_token names targets
+        then Some (List_.map snd names, lhs, rhs, rest)
+        else None
+    | _ -> None
+  in
+  decls [] stmts
+
 (*****************************************************************************)
 (* Entry point *)
 (*****************************************************************************)
@@ -1014,8 +1057,30 @@ class ['self] resolve_visitor env lang =
             super#visit_type_ venv x)
 
     (* TODO: support other types of statements that create block scopes. *)
+    method! visit_program venv x =
+      if lang =*= Lang.Lua then self#visit_lua_stmts venv x
+      else super#visit_program venv x
+
+    (* the value of a Lua local list is read before its names are declared *)
+    method private visit_lua_stmts venv stmts =
+      match lua_local_list stmts with
+      | Some (decls, lhs, rhs, rest) ->
+          self#visit_expr venv rhs;
+          List.iter (self#visit_stmt venv) decls;
+          Common.save_excursion_unsafe env.in_lvalue true (fun () ->
+              self#visit_expr venv lhs);
+          self#visit_lua_stmts venv rest
+      | None -> (
+          match stmts with
+          | st :: rest ->
+              self#visit_stmt venv st;
+              self#visit_lua_stmts venv rest
+          | [] -> ())
+
     method! visit_stmt venv x =
       match x.s with
+      | Block (_, stmts, _) when lang =*= Lang.Lua ->
+          self#visit_lua_stmts venv stmts
       | If (tok, Cond e, s1, s2_opt) when has_block_scope lang ->
           self#visit_tok venv tok;
           self#visit_expr venv e;
