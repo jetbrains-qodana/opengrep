@@ -1,0 +1,2 @@
+local $F <close> = io.open(...)
+local $E

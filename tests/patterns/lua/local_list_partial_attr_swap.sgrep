@@ -1,0 +1,2 @@
+local $X <const> = $B
+local $Y = $X
