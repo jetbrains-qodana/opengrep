@@ -1,0 +1,6 @@
+rules:
+  - id: lua-mig-d18-local-list-const-prefix
+    languages: [lua]
+    severity: INFO
+    message: 'D18: a <const> name gets its value when the values and names differ in number'
+    pattern: sink(42)

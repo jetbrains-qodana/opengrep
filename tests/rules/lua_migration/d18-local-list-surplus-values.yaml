@@ -1,0 +1,11 @@
+rules:
+  - id: lua-mig-d18-surplus-values-1
+    languages: [lua]
+    severity: INFO
+    message: 'D18: a gets the 1st value when there are more values than names'
+    pattern: sink(1)
+  - id: lua-mig-d18-surplus-values-2
+    languages: [lua]
+    severity: INFO
+    message: 'D18: b gets the 2nd value when there are more values than names'
+    pattern: sink(2)

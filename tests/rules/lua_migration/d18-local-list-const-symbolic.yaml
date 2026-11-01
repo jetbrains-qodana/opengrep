@@ -1,0 +1,8 @@
+rules:
+  - id: lua-mig-d18-local-list-const-symbolic
+    languages: [lua]
+    severity: INFO
+    message: 'D18: a <const> name of a list is propagated symbolically'
+    options:
+      symbolic_propagation: true
+    pattern: os.execute(...)

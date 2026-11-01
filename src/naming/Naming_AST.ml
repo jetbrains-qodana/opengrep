@@ -648,6 +648,11 @@ class ['self] resolve_visitor env lang =
       (* In Rust, the left-hand side (lhs) of the let variable definition is
        * parsed as a pattern.
        * TODO handle more cases than just the simple identifier pattern. *)
+      (* Lua: local a, b = e reads e before a and b are declared *)
+      | { name = EPattern (PatTuple _ as pat); _ }, VarDef { vinit; _ }
+        when lang =*= Lang.Lua && is_resolvable_name_ctx env lang ->
+          Option.iter (self#visit_expr venv) vinit;
+          self#visit_pattern venv pat
       | ( { name = EPattern (PatId (id, id_info)); _ },
           VarDef { vinit; vtype; vtok = _ } )
       | { name = EN (Id (id, id_info)); _ }, VarDef { vinit; vtype; vtok = _ }

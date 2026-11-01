@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d15-local-list-numeric-const
+    languages: [lua]
+    severity: INFO
+    message: 'D15: the numeric values of a local list are propagated to both names'
+    patterns:
+      - pattern: sink($N)
+      - metavariable-comparison:
+          metavariable: $N
+          comparison: $N == 1 or $N == 2

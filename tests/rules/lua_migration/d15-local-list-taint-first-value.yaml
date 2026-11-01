@@ -1,0 +1,10 @@
+rules:
+  - id: lua-mig-d15-local-list-taint-first-value
+    languages: [lua]
+    severity: INFO
+    message: 'D15: only the name that gets the tainted value is tainted'
+    mode: taint
+    pattern-sources:
+      - pattern: taint_source()
+    pattern-sinks:
+      - pattern: sink(...)

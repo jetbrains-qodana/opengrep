@@ -505,6 +505,42 @@ class ['self] propagate_basic_visitor lang stats =
                 add_constant_env id (sid, Sym e) env
             | None, _ -> ());
           super#visit_definition (env, ctx) x
+      (* Lua: local a <const>, b <const> = x, y. Surplus values are dropped;
+       * with fewer values than names the last one expands, so only the
+       * names before it have a known value *)
+      | ( { name = EPattern (PatTuple (_, pats, _)); attrs; _ },
+          VarDef
+            { vinit = Some { e = Container (Tuple, (_, values, _)); _ }; _ } )
+        when Eval.is_lang env Lang.Lua ->
+          let n =
+            if List.length values >= List.length pats then List.length pats
+            else List.length values - 1
+          in
+          List.iter2
+            (fun pat (e : expr) ->
+              match pat with
+              | PatId
+                  ( id,
+                    {
+                      id_resolved = { contents = Some (_kind, sid) };
+                      id_flags;
+                      _;
+                    } )
+                when H.has_keyword_attr Const attrs
+                     || IdFlags.is_final !id_flags -> (
+                  id_flags := IdFlags.set_final !id_flags;
+                  match (Eval.eval env e, e.e) with
+                  | Some svalue, _ -> add_constant_env id (sid, svalue) env
+                  | None, L literal ->
+                      add_constant_env id (sid, Lit literal) env
+                  | None, _
+                    when Dataflow_svalue.is_symbolic_expr e
+                         && no_cycles_in_sym_prop sid e ->
+                      add_constant_env id (sid, Sym e) env
+                  | None, _ -> ())
+              | _ -> ())
+            (List_.take n pats) (List_.take n values);
+          super#visit_definition (env, ctx) x
       | entity, ClassDef c ->
           let x' = entity, ClassDef (H.reorder_fields_in_class_definition c) in
           !hook_propagate_basic_visitor

@@ -2944,24 +2944,38 @@ and m_other_stmt_with_stmt_operator a b =
 (*****************************************************************************)
 (* Pattern *)
 (*****************************************************************************)
+(* Lua: a name of a pattern with <const> or <close> is final and matches only
+ * a final name *)
+and m_lua_final (a_info : G.id_info) (b : G.pattern) (k : tin -> tout) =
+  with_lang (fun lang ->
+      match b with
+      | B.PatId (_, b_info)
+        when lang =*= Lang.Lua
+             && IdFlags.is_final !(a_info.id_flags)
+             && not (IdFlags.is_final !(b_info.id_flags)) ->
+          fail ()
+      | _ -> k)
+
 and m_pattern a b =
   match (a, b) with
   (* equivalence: user-defined equivalence! *)
   | G.DisjPat (a1, a2), b -> m_pattern a1 b >||> m_pattern a2 b
   (* metavar: *)
   (* less: G.PatId vs B.PatId? Use MV.Id then ? *)
-  | G.PatId ((str, tok), _id_info), b2 when Mvar.is_metavar_name str -> (
-      try
-        let e2 = H.pattern_to_expr b2 in
-        envf (str, tok) (MV.E e2)
-        (* this can happen with PatAs in exception handler in Python *)
-      with
-      | H.NotAnExpr -> envf (str, tok) (MV.P b2))
+  | G.PatId ((str, tok), id_info), b2 when Mvar.is_metavar_name str ->
+      m_lua_final id_info b2 (fun tin ->
+          (try
+             let e2 = H.pattern_to_expr b2 in
+             envf (str, tok) (MV.E e2)
+             (* this can happen with PatAs in exception handler in Python *)
+           with
+          | H.NotAnExpr -> envf (str, tok) (MV.P b2))
+            tin)
   (* dots: *)
   | G.PatEllipsis _, _ -> return ()
   (* boilerplate *)
   | G.PatId (a1, a2), B.PatId (b1, b2) ->
-      m_ident a1 b1 >>= fun () -> m_id_info a2 b2
+      m_lua_final a2 b (m_ident a1 b1 >>= fun () -> m_id_info a2 b2)
   | G.PatLiteral a1, B.PatLiteral b1 -> m_literal a1 b1
   | G.PatType a1, B.PatType b1 -> m_type_ a1 b1
   | G.PatConstructor (a1, a2), B.PatConstructor (b1, b2) ->
