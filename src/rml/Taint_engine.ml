@@ -32,11 +32,16 @@ let classify_rules_for_analyzer ~(analyzer : Xlang.t) (rules : Rule.t list) :
       let id = Rule_ID.to_string (fst r.Rule.id) in
       if not (Hashtbl.mem seen id) then begin
         Hashtbl.add seen id ();
-        search_acc := r :: !search_acc;
+        (* Taint rules are only run by [collect_taint_entries]. Running them
+         * through [Match_rules.check] as well would run the OpenGrep taint
+         * engine ([Match_tainting_mode]) on every file in the diagnostics
+         * pass, while the IDE computes taint findings itself from the taint
+         * entries and drops these diagnostics. That pass neither changes the
+         * AST nor feeds the taint entries, so it was pure overhead. *)
         match r.Rule.mode with
         | `Taint _ as mode ->
             taint_acc := { r with mode } :: !taint_acc
-        | _ -> ()
+        | _ -> search_acc := r :: !search_acc
       end
     end);
   { search_rules = List.rev !search_acc;
@@ -546,7 +551,15 @@ let parse_file (caps : < Cap.time_limit >)
         f
           {
             timing with
-            Taint_timing.prefilter_times =
+            (* Taint rules no longer go through [Match_rules.check], so the
+             * matching pass does not list them; they are still offered to
+             * this file by the taint pass. *)
+            Taint_timing.candidates =
+              timing.Taint_timing.candidates
+              @ List.map
+                  (fun (r : Rule.taint_rule) -> Rule_ID.to_string (fst r.Rule.id))
+                  ar.taint_rules;
+            prefilter_times =
               !union_prefilter_acc @ timing.Taint_timing.prefilter_times;
             spec_times = !spec_acc;
             spec_timed_out =
