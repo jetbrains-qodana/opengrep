@@ -3,10 +3,14 @@
   *)
 
 (** Pre-classified rule set for a single target analyzer.
-    - [search_rules] are all rules whose [target_analyzer] is compatible with
-      the file's analyzer, deduplicated by [Rule_ID]. This is what
-      [Match_rules.check] (search-engine) wants.
-    - [taint_rules] is the [`Taint]-mode subset, refined to [Rule.taint_rule]
+    Rules are those whose [target_analyzer] is compatible with the file's
+    analyzer, deduplicated by [Rule_ID].
+    - [search_rules] are the non-taint rules. This is what [Match_rules.check]
+      (search-engine) runs for diagnostics. Taint rules are left out: their
+      results come from the taint entries, and running them through the
+      search engine too would only run the OpenGrep taint engine for
+      diagnostics nobody uses.
+    - [taint_rules] are the [`Taint]-mode rules, refined to [Rule.taint_rule]
       so the taint engine API can be called directly without a round-trip
       cast. *)
 type analyzer_rules = {

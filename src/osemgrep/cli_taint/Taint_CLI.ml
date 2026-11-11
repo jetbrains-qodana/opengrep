@@ -92,7 +92,8 @@ let o_bench : string option Term.t =
          $(b,total_cost_ms) is their sum, $(b,mean_cost_ms) amortises \
          it over every file the rule was offered, and \
          $(b,max_cost_ms) with $(b,worst_file) name the worst single \
-         file. Covers taint, search and extract rules. Implies \
+         file. Covers taint, search and extract rules; taint rules have no \
+         $(b,match_ms), since the rule engine does not run them. Implies \
          $(b,--with-diagnostics), since that is what runs the rule \
          engine, and forces single threaded execution so the timings \
          are not distorted by contention."
@@ -103,9 +104,10 @@ let o_with_diagnostics : bool Term.t =
   let info =
     Arg.info [ "with-diagnostics" ]
       ~doc:
-        "In addition to the AST and taint information, run the search/taint \
-         rule engine on each file and emit LSP-style diagnostics under a \
-         $(b,diagnostics) field of every line of output."
+        "In addition to the AST and taint information, run the search and \
+         extract rules on each file and emit LSP-style diagnostics under a \
+         $(b,diagnostics) field of every line of output. Taint rules are not \
+         run in this pass: they only produce the taint information."
   in
   Arg.value (Arg.flag info)
 
