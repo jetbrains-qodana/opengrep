@@ -15,7 +15,7 @@ permissions:
 jobs:
 
   build-core:
-    runs-on: macos-14-xlarge
+    runs-on: macos-15-xlarge
     strategy:
       matrix:
         ocaml_version: ["5.3.0"]
@@ -48,7 +48,7 @@ jobs:
 
   build-wheels:
     needs: build-core
-    runs-on: macos-14-xlarge
+    runs-on: macos-15-xlarge
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -71,7 +71,7 @@ jobs:
 
   build-self-contained-binary:
     needs: build-wheels
-    runs-on: macos-14-xlarge
+    runs-on: macos-15-xlarge
     steps:
       - name: Install ccache
         run: brew install ccache
