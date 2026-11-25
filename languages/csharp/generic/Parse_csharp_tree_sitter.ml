@@ -119,7 +119,7 @@ let param_from_lambda_params lambda_params =
         }
   | ids ->
       let ids = List_.map (fun id -> PatId (id, empty_id_info ())) ids in
-      ParamPattern (PatTuple (fb ids))
+      param_pattern (PatTuple (fb ids))
 
 (* create lambda lambda_params -> expr *)
 let create_lambda lambda_params expr =

@@ -460,7 +460,8 @@ let resolved_name_kind env lang =
 let params_of_parameters env params : scope =
   params |> Tok.unbracket
   |> List_.filter_map (function
-       | Param { pname = Some id; pinfo = id_info; ptype = typ; _ } ->
+       | Param { pname = Some id; pinfo = id_info; ptype = typ; _ }
+       | ParamPattern (_, { pname = Some id; pinfo = id_info; ptype = typ; _ }) ->
            let sid = SId.mk () in
            let resolved = { entname = (Parameter, sid); enttype = typ } in
            set_resolved env id_info resolved;

@@ -296,7 +296,7 @@ and formal_param = function
   | Formal_tuple (_t1, xs, _t2) ->
       let xs = list formal_param_pattern xs in
       let pat = G.PatTuple (Tok.unsafe_fake_bracket xs) in
-      G.ParamPattern pat
+      G.param_pattern pat
   | ParamEllipsis tok -> G.ParamEllipsis tok
 
 and formal_param_pattern = function

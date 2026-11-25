@@ -373,7 +373,7 @@ let parameter_to_catch_exn_opt p =
   match p with
   | Param p -> Some (CatchParam p)
   | ParamEllipsis t -> Some (CatchPattern (PatEllipsis t))
-  | ParamPattern p -> Some (G.CatchPattern p)
+  | ParamPattern (p, _) -> Some (G.CatchPattern p)
   (* TODO: valid in exn spec? *)
   | ParamRest (_, _p)
   | ParamHashSplat (_, _p) ->

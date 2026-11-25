@@ -1385,11 +1385,6 @@ and xml_expr env ~void eorig xml =
           (Related (G.Xmls xml.G.xml_body)) )
 
 and stmt_expr env ?g_expr st =
-  let todo stmts =
-    match g_expr with
-    | None -> todo stmts (G.E (G.e (G.StmtExpr st)))
-    | Some e_gen -> todo stmts (G.E e_gen)
-  in
   match st.G.s with
   | G.ExprStmt (eorig, tok) ->
       let env, e = expr env eorig in
@@ -1449,14 +1444,14 @@ and stmt_expr env ?g_expr st =
         | Some e_gen -> SameAs e_gen
       in
       (env, mk_e (Fetch fresh) eorig)
-  | G.Block (_, block, _) -> (
+  | G.Block (tok, block, _) -> (
       (* See 'AST_generic.stmt_to_expr' *)
       match List.rev block with
       | st :: rev_sts ->
           let env, new_stmts = List.fold_left_map stmt env (List.rev rev_sts) in
           let env = add_stmts env (List_.flatten new_stmts) in
           stmt_expr env st
-      | __else__ -> todo env.stmts)
+      | [] -> (env, mk_unit tok (Related (G.S st))))
   | G.Return (t, eorig, _) ->
       let env, expression = expr_opt env t eorig in
       let env = mk_s (Return (t, expression)) |> add_stmt env in
@@ -1471,12 +1466,49 @@ and stmt_expr env ?g_expr st =
       let env, lv = lval_of_ent env ent in
       let env = mk_i (Assign (lv, e)) (Related (G.S st)) |> add_instr env in
       (env, mk_e (Fetch lv) (related_exp (G.e (G.StmtExpr st))))
+  | G.Switch (tok, switch_expr_opt, cases_and_bodies) ->
+      let env, ss, translate_cases =
+        match switch_expr_opt with
+        | Some switch_expr ->
+            let env, ss, switch_expr' = cond_with_pre_stmts env switch_expr in
+            (env, ss,
+             switch_expr_and_cases_to_exp tok
+               (H.cond_to_expr switch_expr) switch_expr')
+        | None -> (env, [], cases_to_exp tok)
+      in
+      let break_label, break_label_s, switch_env =
+        mk_switch_break_label env tok
+      in
+      let fresh = fresh_lval tok in
+      let lower_body env body =
+        let env, pre_ss, e_val = stmt_expr_with_pre_stmts env body in
+        let assign =
+          mk_s (Instr (mk_i (Assign (fresh, e_val)) (related_tok tok)))
+        in
+        (env, pre_ss @ [ assign ])
+      in
+      let env, jumps, bodies =
+        cases_and_bodies_to_stmts switch_env tok break_label
+          translate_cases lower_body cases_and_bodies
+      in
+      let env = add_stmts env (ss @ jumps @ bodies @ break_label_s) in
+      let eorig =
+        match g_expr with
+        | None -> related_exp (G.e (G.StmtExpr st))
+        | Some e_gen -> SameAs e_gen
+      in
+      (env, mk_e (Fetch fresh) eorig)
   | __else__ ->
       (* In any case, let's make sure the statement is in the IL translation
        * so that e.g. taint can do its job. *)
       let env, new_stmts = stmt env st in
       let env = add_stmts env new_stmts in
-      (env, todo env.stmts)
+      let gany =
+        match g_expr with
+        | None -> G.E (G.e (G.StmtExpr st))
+        | Some e_gen -> G.E e_gen
+      in
+      (env, fixme_exp ToDo gany (Related (G.S st)))
 
 (*****************************************************************************)
 (* Exprs and instrs *)
@@ -1576,7 +1608,7 @@ and parameters params : param list =
   |> List_.map (function
        | G.Param { pname = Some i; pinfo; pdefault; _ } ->
            Param { pname = var_of_id_info i pinfo; pdefault }
-       | G.ParamPattern pat -> PatternParam pat
+       | G.ParamPattern (pat, _) -> PatternParam pat
        | G.ParamReceiver _param ->
            (* TODO: Treat receiver as this parameter *)
            FixmeParam (* TODO *)
@@ -1641,7 +1673,8 @@ and type_opt_with_pre_stmts env opt_ty =
 and no_switch_fallthrough : Lang.t -> bool = function
   | Go
   | Ruby
-  | Rust ->
+  | Rust
+  | Kotlin ->
       true
   | _ -> false
 
@@ -1662,7 +1695,8 @@ and mk_break_continue_labels env tok =
 and mk_switch_break_label env tok =
   let break_label = fresh_label ~label:"__switch_break" tok in
   let switch_env =
-    { env with break_labels = break_label :: env.break_labels }
+    if env.lang =*= Lang.Kotlin then env
+    else { env with break_labels = break_label :: env.break_labels }
   in
   (break_label, [ mk_s (Label break_label) ], switch_env)
 
@@ -1900,7 +1934,7 @@ and stmt_aux env st =
       in
 
       let env, jumps, bodies =
-        cases_and_bodies_to_stmts switch_env tok break_label translate_cases
+        cases_and_bodies_to_stmts switch_env tok break_label translate_cases stmt
           cases_and_bodies
       in
 
@@ -2105,6 +2139,25 @@ and for_each env tok (pat, tok2, e) st =
     @ break_label_s )
 
 (* TODO: Maybe this and the following function could be merged *)
+and switch_pattern_cond env scrutinee tok pat =
+  match pat with
+  | G.PatType { t = G.TyN name; _ } ->
+      let type_name =
+        match name with
+        | G.Id ((s, _), _)
+        | G.IdQualified { name_last = ((s, _), _); _ } -> s
+      in
+      let ty = mk_e (Literal (G.String (tok, (type_name, tok), tok))) NoOrig in
+      (env, [], mk_e (Operator ((G.Is, tok), [ Unnamed scrutinee; Unnamed ty ])) NoOrig)
+  | G.OtherPat (("NotPattern", _), [ G.P inner ]) ->
+      let env, ss, cond = switch_pattern_cond env scrutinee tok inner in
+      (env, ss, mk_e (Operator ((G.Not, tok), [ Unnamed cond ])) NoOrig)
+  | G.OtherPat ((("in" | "!in") as tag, _), [ G.E rhs ]) ->
+      let env, ss, rhs = expr_with_pre_stmts env rhs in
+      let op = if String.equal tag "in" then G.In else G.NotIn in
+      (env, ss, mk_e (Operator ((op, tok), [ Unnamed scrutinee; Unnamed rhs ])) NoOrig)
+  | _ -> (env, [], fixme_exp ToDo (G.P pat) (related_tok tok))
+
 and switch_expr_and_cases_to_exp tok switch_expr_orig switch_expr env cases =
   (* If there is a scrutinee, the cases are expressions we need to check for equality with the scrutinee  *)
   let env, ss, es =
@@ -2124,6 +2177,9 @@ and switch_expr_and_cases_to_exp tok switch_expr_orig switch_expr env cases =
                 eorig = related_tok tok;
               }
               :: es )
+        | G.Case (tok, (G.OtherPat ((("in" | "!in"), _), [ G.E _ ]) as pat)) ->
+            let env, c_ss, cond = switch_pattern_cond env switch_expr tok pat in
+            (env, ss @ c_ss, cond :: es)
         | G.Case (tok, G.OtherPat (_, [ E c ]))
         | G.CaseEqualExpr (tok, c) ->
             let env, c_ss, c' = expr_with_pre_stmts env c in
@@ -2139,8 +2195,9 @@ and switch_expr_and_cases_to_exp tok switch_expr_orig switch_expr env cases =
                `Or`ed together cases. It's handled specially in cases_and_bodies_to_stmts
             *)
             impossible env.stmts (G.Tk tok)
-        | G.Case (tok, _) ->
-            (env, ss, fixme_exp ToDo (G.Tk tok) (related_tok tok) :: es)
+        | G.Case (tok, pat) ->
+            let env, c_ss, cond = switch_pattern_cond env switch_expr tok pat in
+            (env, ss @ c_ss, cond :: es)
         | G.OtherCase ((_todo_categ, tok), _any) ->
             (env, ss, fixme_exp ToDo (G.Tk tok) (related_tok tok) :: es))
       (env, [], []) cases
@@ -2176,35 +2233,55 @@ and cases_to_exp tok env cases =
   in
   ( env,
     ss,
-    { e = Operator ((Or, tok), mk_unnamed_args es); eorig = related_tok tok } )
+    match es with
+    | [ e ] -> e
+    | _ -> { e = Operator ((Or, tok), mk_unnamed_args es); eorig = related_tok tok } )
 
-and cases_and_bodies_to_stmts env tok break_label translate_cases = function
+and cases_and_bodies_to_stmts env tok break_label translate_cases lower_body = function
   | [] -> (env, [ mk_s (Goto (tok, break_label)) ], [])
   | G.CaseEllipsis tok :: _ -> sgrep_construct env.stmts (G.Tk tok)
   | [ G.CasesAndBody ([ G.Default dtok ], body) ] ->
       let label = fresh_label ~label:"__switch_default" tok in
-
-      let env, new_stmts = stmt env body in
+      let env, new_stmts = lower_body env body in
       (env, [ mk_s (Goto (dtok, label)) ], mk_s (Label label) :: new_stmts)
   | G.CasesAndBody (cases, body) :: xs ->
       let env, jumps, bodies =
-        cases_and_bodies_to_stmts env tok break_label translate_cases
-          xs (* TODO this is not tail recursive *)
+        cases_and_bodies_to_stmts env tok break_label translate_cases lower_body xs
       in
       let label = fresh_label ~label:"__switch_case" tok in
-      let env, case_ss, case = translate_cases env cases in
-      let jump =
-        mk_s (IL.If (tok, case, [ mk_s (Goto (tok, label)) ], jumps))
+      let env, tests =
+        if env.lang =*= Lang.Kotlin then
+          case_tests env tok translate_cases label cases jumps
+        else
+          let env, case_ss, case = translate_cases env cases in
+          (env, case_ss @ [ mk_s (IL.If (tok, case, [ mk_s (Goto (tok, label)) ], jumps)) ])
       in
-      let env, new_stmts = stmt env body in
-
+      let env, new_stmts = lower_body env body in
       let body = mk_s (Label label) :: new_stmts in
       let break_if_no_fallthrough =
         if no_switch_fallthrough env.lang then
           [ mk_s (Goto (tok, break_label)) ]
         else []
       in
-      (env, case_ss @ [ jump ], body @ break_if_no_fallthrough @ bodies)
+      (env, tests, body @ break_if_no_fallthrough @ bodies)
+
+and case_tests env tok translate_cases body_label cases jumps =
+  match cases with
+  | [] -> (env, jumps)
+  | case :: rest ->
+      let next_label = fresh_label ~label:"__switch_next" tok in
+      let env, case_ss, case_cond = translate_cases env [ case ] in
+      let env, rest_ss = case_tests env tok translate_cases body_label rest jumps in
+      let jump =
+        match case_cond.e with
+        | Literal (G.Bool (value, _)) ->
+            mk_s (Goto (tok, if value then body_label else next_label))
+        | _ ->
+            mk_s (IL.If (tok, case_cond,
+                          [ mk_s (Goto (tok, body_label)) ],
+                          [ mk_s (Goto (tok, next_label)) ]))
+      in
+      (env, case_ss @ [ jump; mk_s (Label next_label) ] @ rest_ss)
 
 and stmt env st : env * stmt list =
   try stmt_aux env st with

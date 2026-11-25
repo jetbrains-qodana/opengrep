@@ -56,6 +56,56 @@ let vars_to_pattern (l, xs, r) =
   let ys = xs |> List_.map (fun (id, ptype) -> var_to_pattern (id, ptype)) in
   PatTuple (l, ys, r)
 
+(* The scope-function desugaring below injects 'it = receiver' into the lambda
+ * body. The receiver must be a physically fresh copy: reusing the node that
+ * already sits in the call gives it two parents, and chained scope calls then
+ * share their whole prefix - 2^n traversal paths for every full-AST visitor
+ * (intrafile taint hung on large Kotlin files).
+ *
+ * The copy only needs to carry the receiver's taint, so it is simplified:
+ * scope calls collapse to their receiver ('r.let { x -> 3 }' copies as 'r')
+ * and lambda arguments are dropped. Copying a lambda would duplicate a
+ * function definition, and never copying one guarantees a copy contains no
+ * earlier injection, so copies stay linear across chain links.
+ *
+ * Known limitation: the copy carries no lambda-*result* taint, e.g.
+ * 'xs.map { source() }' copies as 'xs.map()'. Keeping a shared reference to
+ * the lambda instead would reintroduce exponential paths (nested lambdas
+ * contain injections of their own). Modelling callback-return taint belongs
+ * in the taint engine, not in this copy. *)
+let scope_function_names = [ "let"; "also"; "use"; "takeIf"; "takeUnless" ]
+
+let is_lambda_arg (arg : G.argument) : bool =
+  match arg with
+  | G.Arg { e = G.Lambda _; _ } -> true
+  | _ -> false
+
+class ['self] injection_expr_copy =
+  object (self : 'self)
+    inherit [_] G.map_legacy as super
+
+    method! visit_expr env e =
+      match e.G.e with
+      | G.Call
+          ( { e = G.DotAccess (recv, _, G.FN (G.Id ((name, _), _))); _ },
+            (_, [ arg ], _) )
+        when List.exists (String.equal name) scope_function_names
+             && is_lambda_arg arg ->
+          self#visit_expr env recv
+      | G.Lambda _ -> G.L (G.Null (Tok.unsafe_fake_tok "null")) |> G.e
+      | _ -> super#visit_expr env e
+
+    method! visit_arguments env (l, args, r) =
+      let args = List.filter (fun a -> not (is_lambda_arg a)) args in
+      super#visit_arguments env (l, args, r)
+  end
+
+(* A fresh, taint-equivalent copy of [e]: scope calls collapsed to their
+   receiver, lambda arguments dropped. *)
+let copy_for_injection (e : G.expr) : G.expr =
+  let c = new injection_expr_copy in
+  c#visit_expr () e
+
 (*****************************************************************************)
 (* Constants *)
 (*****************************************************************************)
@@ -737,7 +787,7 @@ and class_member_declaration (env : env) (x : CST.class_member_declaration) :
           let v4 =
             match v4 with
             | Some x -> simple_identifier env x
-            | None -> ("!companion!", v2)
+            | None -> ("Companion", v2)
           in
           let v5 =
             match v5 with
@@ -969,10 +1019,28 @@ and declaration ?(is_method = false)(env : env) (x : CST.declaration) : definiti
       let v1 = modifiers_opt env v1 in
       let v2 = token env v2 (* "fun" *) in
       let v3 = Option.map (type_parameters env) v3 in
-      (* TODO: receiver type, build a complex name with v5 *)
-      let _v4TODO = anon_opt_rece_type_opt_DOT_cc9388e env v4 in
+      (* The receiver type of an extension function becomes the first
+         parameter, which is a receiver parameter. *)
+      let v4 = anon_opt_rece_type_opt_DOT_cc9388e env v4 in
       let v5 = simple_identifier env v5 in
       let v6 = function_value_parameters env v6 in
+      let v6 =
+        match v4 with
+        | None -> v6
+        | Some receiver_type ->
+            let lp, params, rp = v6 in
+            let receiver =
+              G.ParamReceiver
+                {
+                  G.pname = Some ("this", v2);
+                  ptype = Some (snd receiver_type);
+                  pdefault = None;
+                  pattrs = [];
+                  pinfo = empty_id_info ();
+                }
+            in
+            (lp, receiver :: params, rp)
+      in
       let v7 =
         match v7 with
         | Some (v1, v2) ->
@@ -1432,7 +1500,15 @@ and lambda_literal (env : env) ((v1, v2, v3, v4) : CST.lambda_literal) =
          * the dataflow engine to track taint into the lambda body.
         *)
         let fake_it_tok = Tok.fake_tok v1 "it" in
-        let it_param = G.Param (G.param_of_id ("it", fake_it_tok)) in
+        (* Mark the synthetic param's pinfo as hidden so the prefilter in
+         * Analyze_pattern.ml does not require 'it' to appear in the target
+         * source (e.g. when the source uses an explicit parameter name). *)
+        let it_pinfo =
+          G.basic_id_info ~hidden:true (G.Parameter, G.SId.unsafe_default)
+        in
+        let it_param =
+          G.Param { (G.param_of_id ("it", fake_it_tok)) with pinfo = it_pinfo }
+        in
         ([it_param], v1)
   in
   let v3 =
@@ -1472,7 +1548,7 @@ and lambda_parameter (env : env) (x : CST.lambda_parameter) : G.parameter =
   | Either.Left (id, ptype) -> G.Param (G.param_of_id id ?ptype)
   | Either.Right (l, xs, r) ->
       let pat = vars_to_pattern (l, xs, r) in
-      G.ParamPattern pat
+      G.ParamPattern (pat, G.implicit_param_classic l)
 
 and lambda_parameter_for_loop (env : env) (x : CST.lambda_parameter) =
   match var_or_multivar env x with
@@ -1685,7 +1761,7 @@ and primary_expression (env : env) (x : CST.primary_expression) : expr =
             Some id
         | None -> None
       in
-      let v2 = token env v2 (* "::" *) in
+      let _v2 = token env v2 (* "::" *) in
       let v3 =
         match v3 with
         | `Simple_id x -> simple_identifier env x
@@ -1693,16 +1769,18 @@ and primary_expression (env : env) (x : CST.primary_expression) : expr =
         | `Class tok -> str env tok
         (* "class" *)
       in
+      (* The receiver of a callable reference becomes the qualifier of the
+         name. *)
       let name_info =
-        match (v1, v2, v3) with
-        | _ ->
-            {
-              name_last = (v3, None);
-              name_middle = None (* TODO*);
-              name_top = None;
-              name_info = empty_id_info ();
-            }
-        (* TODO use qualifiers, with v1TODO above *)
+        {
+          name_last = (v3, None);
+          name_middle =
+            (match v1 with
+            | None -> None
+            | Some receiver -> Some (QDots [ (receiver, None) ]));
+          name_top = None;
+          name_info = empty_id_info ();
+        }
       in
       G.N (IdQualified name_info) |> G.e
   | `Func_lit x -> function_literal env x
@@ -1768,16 +1846,24 @@ and primary_expression (env : env) (x : CST.primary_expression) : expr =
         | G.DotAccess (receiver_g_expr, _, G.FN (G.Id ((name, _), _))),
           (l_paren, [ G.Arg ({ e = G.Lambda fdef; _ } as lambda_g_expr) ], r_paren) ->
             (
-              match name with
-              | "let" | "also" | "use" | "takeIf" | "takeUnless" -> 
+              if List.exists (String.equal name) scope_function_names then
                   (match Tok.unbracket fdef.fparams with
                   (* The lambda must have exactly one parameter (either explicit or our synthetic 'it'). *)
                   | [ G.Param { pname = Some param_id; pinfo = param_id_info; _ } ] ->
                       (
-                        (* Create a new 'Assign' expression node in the AST. *)
+                        (* Create a new 'Assign' expression node in the AST.
+                           The receiver must be copied (not referenced): see
+                           injection_expr_copy above. In pattern mode the RHS
+                           is an ellipsis instead: a collapsed copy would fail
+                           metavariable equality against the target's full,
+                           uncollapsed receiver bound at the DotAccess. *)
                         let param_g_name = G.Id (param_id, param_id_info) in
                         let lhs_g_expr = G.e (G.N param_g_name) in
-                        let assign_g_expr = G.e (G.Assign (lhs_g_expr, (G.fake "="), receiver_g_expr)) in
+                        let injected_receiver =
+                          if in_pattern env then G.Ellipsis (G.fake "...") |> G.e
+                          else copy_for_injection receiver_g_expr
+                        in
+                        let assign_g_expr = G.e (G.Assign (lhs_g_expr, (G.fake "="), injected_receiver)) in
                         let new_assign_g_stmt = G.s (G.ExprStmt (assign_g_expr, (G.fake ";"))) in
 
                         (* Prepend the new assignment to the lambda's body. *)
@@ -1808,7 +1894,7 @@ and primary_expression (env : env) (x : CST.primary_expression) : expr =
                       )
                   | _ -> (g_expr_v1, g_args_v2)
                   )
-              | _ -> (g_expr_v1, g_args_v2)
+              else (g_expr_v1, g_args_v2)
             )
         | _ -> (g_expr_v1, g_args_v2)
       with _ -> (g_expr_v1, g_args_v2)
@@ -2283,40 +2369,46 @@ and variable_declaration (env : env) ((v1, v2) : CST.variable_declaration) =
   in
   (v1, v2)
 
-and when_condition (env : env) (x : CST.when_condition) : G.expr =
+(* A condition of a [when] with a subject is compared with the subject;
+ * one of a [when] without a subject is a boolean expression. *)
+and when_condition (env : env) (x : CST.when_condition) : G.case =
   match x with
-  | `Exp v1 -> expression env v1
-  (* TODO: there is an implicit first argument that is the thing
-   * we call 'when' on
+  | `Exp v1 -> G.CaseEqualExpr (fake "case", expression env v1)
+  (* The thing we call 'when' on is the implicit first argument of the
+   * tests below: the switch scrutinee.
    *)
   | `Range_test (v1, v2) ->
-      let op, tok = in_operator env v1 in
+      let _op, tok = in_operator env v1 in
+      let tag =
+        match v1 with
+        | `In _ -> "in"
+        | `BANGin _ -> "!in"
+      in
       let v2 = expression env v2 in
-      G.opcall (op, tok) [ v2 ]
-  | `Type_test (v1, v2) ->
-      let op, tok = is_operator env v1 in
-      let t = type_ env v2 in
-      G.Call (G.IdSpecial (G.Op op, tok) |> G.e, fb [ G.ArgType t ]) |> G.e
+      G.Case (tok, G.OtherPat ((tag, tok), [ G.E v2 ]))
+  | `Type_test (v1, v2) -> (
+      let _op, tok = is_operator env v1 in
+      let pat = G.PatType (type_ env v2) in
+      match v1 with
+      | `Is _ -> G.Case (tok, pat)
+      | `BANGis _ -> G.Case (tok, G.OtherPat (("NotPattern", tok), [ G.P pat ])))
 
 and when_entry (env : env) ((v1, v2, v3, v4) : CST.when_entry) =
   let v1 =
     match v1 with
+    (* Conditions separated by commas: the branch is taken when any of
+     * them holds, as for several cases on one body. *)
     | `When_cond_rep_COMMA_when_cond (v1, v2) ->
         let v1 = when_condition env v1 in
         let v2 =
           List_.map
             (fun (v1, v2) ->
-              let v1 = token env v1 (* "," *) in
-              let v2 = when_condition env v2 in
-              (v1, v2))
+              let _v1 = token env v1 (* "," *) in
+              when_condition env v2)
             v2
         in
-        let cond =
-          v2
-          |> List.fold_left (fun acc (t, e) -> G.opcall (And, t) [ acc; e ]) v1
-        in
-        Case (fake "case", PatWhen (PatWildcard (fake "_"), cond))
-    | `Else tok -> Default (token env tok)
+        v1 :: v2
+    | `Else tok -> [ Default (token env tok) ]
     (* "else" *)
   in
   let _v2 = token env v2 (* "->" *) in
@@ -2328,7 +2420,7 @@ and when_entry (env : env) ((v1, v2, v3, v4) : CST.when_entry) =
         ()
     | None -> ()
   in
-  CasesAndBody ([ v1 ], v3)
+  CasesAndBody (v1, v3)
 
 and when_subject (env : env) ((v1, v2, v3, v4) : CST.when_subject) : condition =
   let _v1 = token env v1 (* "(" *) in

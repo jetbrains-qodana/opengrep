@@ -579,7 +579,7 @@ and fun_ { f_kind; f_attrs = f_props; f_params; f_body; f_rettype } =
 
 and parameter_binding = function
   | ParamClassic x -> parameter x
-  | ParamPattern x -> G.ParamPattern (pattern x)
+  | ParamPattern x -> G.param_pattern (pattern x)
   | ParamEllipsis x -> G.ParamEllipsis x
 
 and pattern x =
